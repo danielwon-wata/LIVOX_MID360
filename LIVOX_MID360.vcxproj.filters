@@ -4,6 +4,36 @@
     <ClCompile Include="LIVOX_Height.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Volumetric module.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Users\doyoe\TEMP\imgui\imgui.cpp">
+      <Filter>Source Files\external\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Users\doyoe\TEMP\imgui\imgui_draw.cpp">
+      <Filter>Source Files\external\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Users\doyoe\TEMP\imgui\backends\imgui_impl_glfw.cpp">
+      <Filter>Source Files\external\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Users\doyoe\TEMP\imgui\backends\imgui_impl_opengl3.cpp">
+      <Filter>Source Files\external\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Users\doyoe\TEMP\imgui\imgui_widgets.cpp">
+      <Filter>Source Files\external\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="Pantos_Volumetric.cpp">
+      <Filter>Source Files\Pantos</Filter>
+    </ClCompile>
+    <ClCompile Include="CounterBalance_Volumetric.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Volumetric_module_test.cpp">
+      <Filter>Source Files\TEST</Filter>
+    </ClCompile>
+    <ClCompile Include="Cluster_TEST.cpp">
+      <Filter>Source Files\TEST</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source Files">
@@ -11,6 +41,24 @@
     </Filter>
     <Filter Include="Header Files">
       <UniqueIdentifier>{7961315c-f473-45c7-a4bb-a38ac11facdb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\gui">
+      <UniqueIdentifier>{b61bdbb0-adf8-4cd0-b07c-6c06ddc8d638}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\external">
+      <UniqueIdentifier>{1857a6e7-b0bf-4fe1-a224-58ed804c1a18}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\external\imgui">
+      <UniqueIdentifier>{3ba68f6b-ba6b-40db-bcc5-b10038135128}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="config">
+      <UniqueIdentifier>{2e4e861d-5e2c-4f4b-a5f4-ae3d318149f7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Pantos">
+      <UniqueIdentifier>{7ec426b0-662a-4603-89d3-2e5e223d764f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\TEST">
+      <UniqueIdentifier>{e73cd89a-53ad-4943-ba5e-feb9f25f3db4}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -33,5 +81,37 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="LIVOX_Height.h" />
+    <ClInclude Include="resource.h" />
+    <ClInclude Include="resource1.h" />
+    <ClInclude Include="resource_dev.h">
+      <Filter>Source Files\TEST</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="x64\Debug\config\setting-clark.json">
+      <Filter>config</Filter>
+    </None>
+    <None Include="x64\Debug\config\setting.json">
+      <Filter>config</Filter>
+    </None>
+    <None Include="x64\Debug\config\config.json">
+      <Filter>config</Filter>
+    </None>
+    <None Include="x64\Debug\config\h_setting.json">
+      <Filter>config</Filter>
+    </None>
+    <None Include="x64\Debug\config\P_setting.json">
+      <Filter>config</Filter>
+    </None>
+    <None Include="dev_setting.json">
+      <Filter>config</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="LIVOX_VOLUMETRIC.rc" />
+    <ResourceCompile Include="resource.rc" />
+    <ResourceCompile Include="resource_dev.rc">
+      <Filter>Source Files\TEST</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

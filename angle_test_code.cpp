@@ -53,7 +53,7 @@
 #include <unordered_map>
 #include <Eigen/Dense>
 
-#include <vector>
+
 
 
 
@@ -69,14 +69,14 @@
 // ----------------------------------------------------------------------------
 struct StageROI {
     std::string label = "";   // "stage1"
-    int roi_x_start=0;     // mm
-    int roi_x_end=0;       // mm
+    int roi_x_start = 0;     // mm
+    int roi_x_end = 0;       // mm
 };
 
 struct RackShelfRange {
-    std::string shelf_label="";
-    float shelf_start=0;
-	float shelf_end=0;
+    std::string shelf_label = "";
+    float shelf_start = 0;
+    float shelf_end = 0;
 };
 
 
@@ -88,20 +88,20 @@ struct CaliROIBox {
 CaliROIBox ground_roi_box = {
     -4.0f, -2.0f,
     -0.85f, -0.35f,
-    1.2f, 1.5f
+    -0.4f, -0.2f
     //0.2f, 0.6f // 포크 사이
 };
 
 
 struct PalletROIBox {
-	float x_min, x_max;
-	float y_min, y_max;
-	float z_min, z_max;
+    float x_min, x_max;
+    float y_min, y_max;
+    float z_min, z_max;
 };
 PalletROIBox pallet_roi_box = {
-	-2.27f, 5.59f,
-	-0.7f, -0.35f,
-	0.1f, 0.85f
+    -2.27f, 5.59f,
+    -0.7f, -0.35f,
+    0.1f, 0.85f
 };
 
 
@@ -121,23 +121,23 @@ BackrestROIBox backrest_roi_box = {
 struct WATAConfig {
     int iteration = 0;
 
-    int roi_y_start=0;  // mm
-    int roi_y_end=0;    // mm
-    int roi_z_start=0;  // mm
-    int roi_z_end=0;    // mm
-    int angle=0;        // deg
+    int roi_y_start = 0;  // mm
+    int roi_y_end = 0;    // mm
+    int roi_z_start = 0;  // mm
+    int roi_z_end = 0;    // mm
+    int angle = 0;        // deg
 
-    int V_x_start=0;
-    int V_x_end=0;
+    int V_x_start = 0;
+    int V_x_end = 0;
 
-    bool read_file=false;
-    bool save_file=false;
-    std::string read_file_name="";
-    std::string save_file_name="";
+    bool read_file = false;
+    bool save_file = false;
+    std::string read_file_name = "";
+    std::string save_file_name = "";
     // 추가
-    int mean_k=0;
-    float threshold=0;
-    int height_threshold=0;
+    int mean_k = 0;
+    float threshold = 0;
+    int height_threshold = 0;
 };
 
 struct PalletInfo {
@@ -194,7 +194,7 @@ std::vector<float> z_lengths(vector_size);
 std::vector<StageROI> g_stages;
 std::vector<RackShelfRange> g_rack_shelf_ranges;
 std::vector<std::string> cluster_box_ids;
-std::vector<std::string> volume_line_ids; 
+std::vector<std::string> volume_line_ids;
 std::vector<std::string> pallet_line_ids;
 std::vector<std::string> pallet_height_text_ids;
 
@@ -255,7 +255,8 @@ WATAConfig readConfigFromJson(const std::string& filePath) {
     json j;
     try {
         j = json::parse(jsonWithoutComments);
-    } catch (const nlohmann::json::parse_error& e) {
+    }
+    catch (const nlohmann::json::parse_error& e) {
         std::cerr << "JSON parse error at byte " << e.byte << ": " << e.what() << std::endl;
         throw std::runtime_error("JSON parse error: " + std::string(e.what()));
     }
@@ -592,7 +593,7 @@ std::string findPalletStage(bool pallet_height_fixed, float fixed_pallet_height,
         float smin = std::min(stage.roi_x_start, stage.roi_x_end) * 0.001f; // mm -> m
         float smax = std::max(stage.roi_x_start, stage.roi_x_end) * 0.001f; // mm->m
 
-        if (pallet_height >= smin-0.065f && pallet_height <= smax+0.065f) {
+        if (pallet_height >= smin - 0.065f && pallet_height <= smax + 0.065f) {
             return stage.label;  // 해당 스테이지 반환
         }
     }
@@ -630,7 +631,7 @@ std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> performClustering(
     std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> P_clusters;
     P_clusters.reserve(P_cluster_indices.size());
 
-    #pragma omp parallel for
+#pragma omp parallel for
     for (int i = 0; i < static_cast<int>(P_cluster_indices.size()); ++i) {
         pcl::PointCloud<pcl::PointXYZ>::Ptr P_cluster(new pcl::PointCloud<pcl::PointXYZ>());
         for (const auto& idx : P_cluster_indices[i].indices) {
@@ -638,7 +639,7 @@ std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> performClustering(
         }
         P_cluster->width = P_cluster->points.size();
         P_cluster->height = 1;
-        #pragma omp critical
+#pragma omp critical
         {
             P_clusters.push_back(P_cluster);
         }
@@ -933,18 +934,14 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::visualization
         while (true) {
             seg.setModelType(pcl::SACMODEL_PLANE);
             seg.setMethodType(pcl::SAC_RANSAC);
-            seg.setDistanceThreshold(0.05);
+            seg.setDistanceThreshold(0.02);
             seg.setInputCloud(cloud);
             seg.segment(*inliers, *coefficients);
 
-
-            if (inliers->indices.size() < 100) {
+            if (inliers->indices.size() < 10) {
                 std::cout << "No more planes found." << std::endl;
                 break;
             }
-            std::cout << "[info] plane indices size: " << inliers->indices.size() << std::endl;
-            std::cout << "[DEBUG] Input cloud size: " << cloud->size() << std::endl;
-
 
             // 평면의 포인트 클라우드 생성
             pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_plane(new pcl::PointCloud<pcl::PointXYZ>);
@@ -962,9 +959,6 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::visualization
             ec.setClusterTolerance(0.06);
             ec.setMinClusterSize(150);
             ec.setMaxClusterSize(3000);
-            seg.setMaxIterations(5000);  // 기본값 1000보다 증가
-            seg.setProbability(0.99); // 신뢰도를 높임
-
             ec.setSearchMethod(tree);
             ec.setInputCloud(cloud_plane);
             ec.extract(cluster_indices);
@@ -1013,10 +1007,10 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::visualization
             extract.setNegative(true);
             extract.filter(*cloud);
         }
-    }   
-	catch (const std::exception& e) {
-		//std::cerr << e.what() << std::endl;
-	}
+    }
+    catch (const std::exception& e) {
+        //std::cerr << e.what() << std::endl;
+    }
     if (max_length_y > 0) {
         std::string line_id_y = "longest_line_y";
 
@@ -1131,18 +1125,31 @@ void calcMaxX(std::vector<float>& x_values, float& max_x_value)
 // ----------------------------------------------------------------------------
 // [부피 측정] 기울기 계산
 // ----------------------------------------------------------------------------
-void calculateAnglePoints(const pcl::PointXYZ& start_point, const pcl::PointXYZ& end_point, pcl::visualization::PCLVisualizer::Ptr viewer) {
+void calculateAnglePoints(const pcl::PointXYZ& start_point,
+    const pcl::PointXYZ& end_point,
+    const pcl::PointXYZ& start_x_point,
+    const pcl::PointXYZ& end_x_point,
+    pcl::visualization::PCLVisualizer::Ptr viewer)
+{
     float dy = end_point.y - start_point.y;
-    float angle_radians = std::atan(dy);  // 기울기
-
+    float dx = end_x_point.x - start_x_point.x;
+    float angle_radians = std::atan2(dy, dx);  // 기울기 (atan 대신 atan2 사용)
 
     angle_degrees = angle_radians * 180.0 / M_PI;
 
-    std::cout << "start_min_y_point: ("
-        << start_point.x << ", " << start_point.y << ", " << start_point.z << ")" << std::endl;
-    std::cout << "end_min_y_point: ("
-        << end_point.x << ", " << end_point.y << ", " << end_point.z << ")" << std::endl;
+    if (angle_degrees < -45.0f) {
+        angle_degrees = -45.0f;
+    }
+    if (angle_degrees > 45.0f) {
+        angle_degrees = 45.0f;
+    }
 
+
+    std::cout << "start_max_y_point: (" << start_point.x << ", " << start_point.y << ", " << start_point.z << ")" << std::endl;
+    std::cout << "end_max_y_point: (" << end_point.x << ", " << end_point.y << ", " << end_point.z << ")" << std::endl;
+    std::cout << "start_max_x_point: (" << start_x_point.x << ", " << start_x_point.y << ", " << start_x_point.z << ")" << std::endl;
+    std::cout << "end_max_x_point: (" << end_x_point.x << ", " << end_x_point.y << ", " << end_x_point.z << ")" << std::endl;
+    std::cout << "Calculated Angle (degrees): " << angle_degrees << "°" << std::endl;
 
     viewer->removeShape("angle_line");
     pcl::PointXYZ start_z(start_point.x, start_point.y, start_point.z);
@@ -1219,7 +1226,7 @@ PalletInfo identifyPallet(pcl::visualization::PCLVisualizer::Ptr viewer,
     float pallet_z = 0.0f;
 
     float loadROI_x1_min = pallet_roi_box.x_min + 0.1f;
-    float loadROI_x1_max = pallet_roi_box.x_min + 1.8f;
+    float loadROI_x1_max = pallet_roi_box.x_min + 1.6f;
     float loadROI_x2_min = pallet_roi_box.x_min + 2.01f;
     float loadROI_x2_max = pallet_roi_box.x_min + 3.79f;
     float loadROI_x3_min = pallet_roi_box.x_min + 3.94f;
@@ -1241,7 +1248,7 @@ PalletInfo identifyPallet(pcl::visualization::PCLVisualizer::Ptr viewer,
             }
         }
         else if (point.x >= loadROI_x1_min && point.x <= loadROI_x1_max &&
-            point.y >= loadROI_y_min  && point.y <= loadROI_y_max &&
+            point.y >= loadROI_y_min && point.y <= loadROI_y_max &&
             point.z >= loadROI_z_min && point.z <= loadROI_z_max) {
             count_load_roi_1++;
         }
@@ -1255,7 +1262,7 @@ PalletInfo identifyPallet(pcl::visualization::PCLVisualizer::Ptr viewer,
             point.z >= loadROI_z_min && point.z <= loadROI_z_max) {
             count_load_roi_3++;
         }
-            
+
         else if (point.x >= -0.1f && point.x <= 0.33f &&
             point.y >= -0.63f && point.y <= -0.38f &&
             point.z >= -0.05f && point.z <= 0.2f)
@@ -1286,6 +1293,9 @@ PalletInfo identifyPallet(pcl::visualization::PCLVisualizer::Ptr viewer,
             pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME,
             "load_roi_box_1"
         );
+        if (count_load_roi_1 <= 0) {
+            viewer->removeShape("load_roi_box_1");
+        }
     }
     else if (count_load_roi_2 >= 25 && count_load_roi_2 <= 1000) {
         PickUp = true;
@@ -1304,7 +1314,10 @@ PalletInfo identifyPallet(pcl::visualization::PCLVisualizer::Ptr viewer,
             pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME,
             "load_roi_box_2"
         );
-    }  
+        if (count_load_roi_2 <= 0) {
+            viewer->removeShape("load_roi_box_2");
+        }
+    }
     else if (count_load_roi_3 >= 40 && count_load_roi_3 <= 2000) {
         PickUp = true;
         std::cout << "[PICKUP] 3rd Floor !!!" << std::endl;
@@ -1322,11 +1335,9 @@ PalletInfo identifyPallet(pcl::visualization::PCLVisualizer::Ptr viewer,
             pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME,
             "load_roi_box_3"
         );
-    }
-    else if (count_load_roi_1 <= 0 && count_load_roi_2 <= 0 && count_load_roi_3 <= 0) {
-        viewer->removeShape("load_roi_box_1");
-        viewer->removeShape("load_roi_box_2");
-        viewer->removeShape("load_roi_box_3");
+        if (count_load_roi_3 <= 0) {
+            viewer->removeShape("load_roi_box_3");
+        }
     }
 
     else if (count_hidden_load >= 10) {
@@ -1346,22 +1357,22 @@ PalletInfo identifyPallet(pcl::visualization::PCLVisualizer::Ptr viewer,
         );
         if (count_hidden_load <= 10) { viewer->removeShape("hidden_load_roi_box"); }
     }
-    
-    else { 
-        PickUp = false; 
+
+    else {
+        PickUp = false;
         PickUp_1 = false;
-    } 
+    }
 
 
     std::cout << "pallet points: " << count_pallet_roi << std::endl;
 
     if (count_pallet_roi >= 15 && count_pallet_roi <= 900 && inFrontofRack == false &&
-        !(shelf_point_counts[0] > 800 && shelf_point_counts[1]==0 && shelf_point_counts[2]==0))
+        !(shelf_point_counts[0] > 800 && shelf_point_counts[1] == 0 && shelf_point_counts[2] == 0))
     {
         info.is_pallet = true; // 그만큼 있으면 파레트(포크)
         info.P_height = min_x_pallet_roi; // 파레트 높이: 가장 아래에 있는 포인트
-		info.P_y = pallet_y;
-		info.P_z = pallet_z;
+        info.P_y = pallet_y;
+        info.P_z = pallet_z;
         showPalletROIBox(viewer, true); // ROI 박스 활성화
         return info;
     }
@@ -1369,8 +1380,8 @@ PalletInfo identifyPallet(pcl::visualization::PCLVisualizer::Ptr viewer,
 
     int count_backrest_roi = 0;
     float max_x_backrest_roi = std::numeric_limits<float>::min();
-	float backrest_y = 0.0f;
-	float backrest_z = 0.0f;
+    float backrest_y = 0.0f;
+    float backrest_z = 0.0f;
 
     for (const auto& point : cloud->points) {
         if (point.x >= backrest_roi_box.x_min && point.x <= backrest_roi_box.x_max &&
@@ -1381,8 +1392,8 @@ PalletInfo identifyPallet(pcl::visualization::PCLVisualizer::Ptr viewer,
             count_backrest_roi++;
             if (point.x < max_x_backrest_roi) {
                 max_x_backrest_roi = point.x;
-				backrest_y = point.y;
-				backrest_z = point.z;
+                backrest_y = point.y;
+                backrest_z = point.z;
             }
         }
     }
@@ -1391,8 +1402,8 @@ PalletInfo identifyPallet(pcl::visualization::PCLVisualizer::Ptr viewer,
     if (count_backrest_roi >= 20 && count_backrest_roi <= 250 && count_pallet_roi <= 45 && inFrontofRack == false) { // 포인트 개수
         info.is_pallet = true; // 그만큼 있으면 파레트(사실상 백레스트)
         info.P_height = max_x_backrest_roi - 0.05f; // 백레스트
-		info.P_y = backrest_y;
-		info.P_z = backrest_z;
+        info.P_y = backrest_y;
+        info.P_z = backrest_z;
         showBackrestROIBox(viewer, true); // ROI 박스 활성화
 
         return info;
@@ -1400,7 +1411,7 @@ PalletInfo identifyPallet(pcl::visualization::PCLVisualizer::Ptr viewer,
     showBackrestROIBox(viewer, false); // ROI 박스 비활성화
 
     return info;
-} 
+}
 
 // ----------------------------------------------------------------------------
 // [높이 센서] 시각화
@@ -1498,7 +1509,7 @@ int main(int argc, const char* argv[]) {
     for (auto& st : g_stages) {
         std::cout << "  " << st.label << ": x_start=" << st.roi_x_start
             << ", x_end=" << st.roi_x_end << std::endl;
-    }    
+    }
 
     const int iteration = config.iteration;
 
@@ -1610,33 +1621,33 @@ int main(int argc, const char* argv[]) {
         );
     }
 
-	for (size_t i = 0; i < g_rack_shelf_ranges.size(); ++i) {
-		double x1 = (double)std::min(g_rack_shelf_ranges[i].shelf_start, g_rack_shelf_ranges[i].shelf_end) * 0.001;
-		double x2 = (double)std::max(g_rack_shelf_ranges[i].shelf_start, g_rack_shelf_ranges[i].shelf_end) * 0.001;
+    for (size_t i = 0; i < g_rack_shelf_ranges.size(); ++i) {
+        double x1 = (double)std::min(g_rack_shelf_ranges[i].shelf_start, g_rack_shelf_ranges[i].shelf_end) * 0.001;
+        double x2 = (double)std::max(g_rack_shelf_ranges[i].shelf_start, g_rack_shelf_ranges[i].shelf_end) * 0.001;
         double y1 = (double)y_min;
         double y2 = (double)y_max;
         double z1 = (double)z_min;
         double z2 = (double)z_max;
-		double R = 1.0, G = 0.0, B = 0.0; // 빨강
-		std::string shape_id = "rack_shelf_box_" + std::to_string(i);
-		viewer->addCube(
-			x1, x2,
-			y1, y2,
-			z1, z2,
-			R, G, B,
-			shape_id
-		);
-		viewer->setShapeRenderingProperties(
-			pcl::visualization::PCL_VISUALIZER_REPRESENTATION,
-			pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME,
-			shape_id
-		);
-		viewer->setShapeRenderingProperties(
-			pcl::visualization::PCL_VISUALIZER_LINE_WIDTH,
-			1.0,
-			shape_id
-		);
-	}
+        double R = 1.0, G = 0.0, B = 0.0; // 빨강
+        std::string shape_id = "rack_shelf_box_" + std::to_string(i);
+        viewer->addCube(
+            x1, x2,
+            y1, y2,
+            z1, z2,
+            R, G, B,
+            shape_id
+        );
+        viewer->setShapeRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_REPRESENTATION,
+            pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME,
+            shape_id
+        );
+        viewer->setShapeRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_LINE_WIDTH,
+            1.0,
+            shape_id
+        );
+    }
 
     // 전역 변수 또는 메인 루프 상단에 추가
     bool previous_V_start_process = V_start_process;
@@ -1650,12 +1661,12 @@ int main(int argc, const char* argv[]) {
             {
                 std::lock_guard<std::mutex> lock(control_mutex);
                 if (is_paused) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100)); 
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     continue;
                 }
             }
 
-			if (READ_PCD_FROM_FILE) { // 파일에서 PCD 로드
+            if (READ_PCD_FROM_FILE) { // 파일에서 PCD 로드
                 std::lock_guard<std::mutex> lk(control_mutex);
                 if (reading_active) {
                     // chunk_size = 96 * iteration = 96 * 100 = 9,600
@@ -1699,13 +1710,13 @@ int main(int argc, const char* argv[]) {
                     }
                     cloud_ground->width = static_cast<uint32_t>(cloud_ground->points.size());
                     cloud_ground->height = 1;
-                    
+
                     voxelizePointCloud(cloud_ground, 0.1f, 0.1f, 0.1f);
                 }
-               
+
                 try { // 지면 높이 계산
                     fixed_ground_height = std::abs(calculateGroundHeight(cloud_ground));
-					ground_height_fixed = true; // 지면 높이 고정(토글)
+                    ground_height_fixed = true; // 지면 높이 고정(토글)
 
                     std::cout << "[Calibration] Ground height fixed: " << fixed_ground_height << " m" << std::endl;
 
@@ -1724,7 +1735,7 @@ int main(int argc, const char* argv[]) {
                         color_handler(cloud_ground, 255, 0, 0);
                     viewer->addPointCloud<pcl::PointXYZ>(cloud_ground, color_handler, "roi_cloud");
                     viewer->setPointCloudRenderingProperties(
-                        pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "roi_cloud" 
+                        pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "roi_cloud"
                     ); // 빨강색으로 지면 포인트 표시
                 }
                 catch (const std::runtime_error& e) {
@@ -1735,10 +1746,10 @@ int main(int argc, const char* argv[]) {
                         "ground_result_text");
                 }
             }
-            
-			// ------------------------------------------------------------------
-			// [ZMQ] 메시지 수신
-			// ------------------------------------------------------------------
+
+            // ------------------------------------------------------------------
+            // [ZMQ] 메시지 수신
+            // ------------------------------------------------------------------
             zmq::message_t msg;
             if (subscriber.recv(msg, zmq::recv_flags::dontwait)) {
                 std::string message(static_cast<char*>(msg.data()), msg.size());
@@ -1757,8 +1768,8 @@ int main(int argc, const char* argv[]) {
             // ------------------------------------------------------------------
             // 부피 측정 모드와 아닐 때, 이전 데이터 제거
             // ------------------------------------------------------------------
-            if (V_start_process != previous_V_start_process) {                
-                if (previous_V_start_process) {                    
+            if (V_start_process != previous_V_start_process) {
+                if (previous_V_start_process) {
                     viewer->removePointCloud("cloud_pcd");
                     viewer->removePointCloud("cloud_angle_filtered");
                     viewer->removeShape("result");
@@ -1770,15 +1781,15 @@ int main(int argc, const char* argv[]) {
                 }
                 else {
                     viewer->removePointCloud("filtered_cloud");
-                    viewer->removeShape("stageText");                    
+                    viewer->removeShape("stageText");
                     for (size_t i = 0; i < g_stages.size(); ++i) {
                         std::string count_text_id = "stage" + std::to_string(i + 1) + "_count";
                         viewer->removeShape(count_text_id);
-                    }                    
+                    }
                     for (const auto& box_id : cluster_box_ids) {
                         viewer->removeShape(box_id);
-                                        }                    
-                    viewer->removeAllPointClouds();                     
+                    }
+                    viewer->removeAllPointClouds();
                 }
 
                 // 포인트 클라우드 데이터 초기화
@@ -1803,10 +1814,14 @@ int main(int argc, const char* argv[]) {
                 // -------------------------------------------------------------------------------------
                 if (V_start_process && PickUp_1) {
                     // V_start_process가 true인 경우: x < 0.0f인 포인트 처리
-                    float start_min_y = std::numeric_limits<float>::infinity();
-                    pcl::PointXYZ start_min_y_point;
-                    float end_min_y = std::numeric_limits<float>::infinity();
-                    pcl::PointXYZ end_min_y_point;
+                    float start_max_y = std::numeric_limits<float>::lowest();
+                    float start_max_x = std::numeric_limits<float>::lowest();
+                    pcl::PointXYZ start_max_y_point;
+                    pcl::PointXYZ start_max_x_point;
+                    float end_max_y = std::numeric_limits<float>::lowest();
+                    float end_max_x = std::numeric_limits<float>::lowest();
+                    pcl::PointXYZ end_max_y_point;
+                    pcl::PointXYZ end_max_x_point;
                     std::vector<float> x_values;
 
                     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_pcd_local(new pcl::PointCloud<pcl::PointXYZ>);
@@ -1819,25 +1834,42 @@ int main(int argc, const char* argv[]) {
                         point.y = temp.y * COS_THETA - temp.z * SIN_THETA;
                         point.z = temp.y * SIN_THETA + temp.z * COS_THETA;
 
-                        if (point.x < V_x_max && point.x >= -fixed_ground_height + 0.25f &&
-                            point.y >= y_min && point.y <= -0.45 && // 기본값 -0.45f (백레스트 앞)
+                        if (point.x < V_x_max && point.x >= -fixed_ground_height + 0.15f &&
+                            point.y >= y_min && point.y <= -0.4f &&
                             point.z >= z_min && point.z <= z_max) {
                             x_values.push_back(point.x);
                             cloud_filtered_volume->points.push_back(point);
                             cloud_pcd_local->points.push_back(point);
 
                             if (point.z >= 0.1f && point.z <= 0.3f) {
-                                if (point.y < start_min_y) {
-                                    start_min_y = point.y;
-                                    start_min_y_point = point;
+                                // X좌표가 가장 큰 점 찾기
+                                if (point.x > start_max_x) {
+                                    start_max_x = point.x;
+                                    start_max_x_point = point;
                                 }
                             }
 
                             if (point.z > 0.7f && point.z <= 0.9f) {
-                                if (point.y < end_min_y) {
-                                    end_min_y = point.y;
-                                    end_min_y_point = point;
+                                // X좌표가 가장 큰 점 찾기
+                                if (point.x > end_max_x) {
+                                    end_max_x = point.x;
+                                    end_max_x_point = point;
                                 }
+                            }
+                        }
+
+                    }
+                    for (const auto& point : cloud_merge->points) {
+                        if (point.z >= 0.1f && point.z <= 0.3f && point.x == start_max_x) {
+                            if (point.y > start_max_y) {
+                                start_max_y = point.y;
+                                start_max_y_point = point;
+                            }
+                        }
+                        if (point.z > 0.7f && point.z <= 0.9f && point.x == end_max_x) {
+                            if (point.y > end_max_y) {
+                                end_max_y = point.y;
+                                end_max_y_point = point;
                             }
                         }
                     }
@@ -1851,15 +1883,24 @@ int main(int argc, const char* argv[]) {
                             temp.x = max_x_value;
                         }
                     }
-
-               
+                    //// Y좌표가 가장 큰 점 찾기
+                    //if (point.y > start_max_y) {
+                    //    start_max_y = point.y;
+                    //    start_max_y_point = point;
+                    //}
+                    //// Y좌표가 가장 큰 점 찾기
+                    //if (point.y > end_max_y) {
+                    //    end_max_y = point.y;
+                    //    end_max_y_point = point;
+                    //}
                     // Voxel Downsample
-                    voxelizePointCloud(cloud_filtered_volume, 0.05f, 0.02f, 0.05f);
+                    voxelizePointCloud(cloud_filtered_volume, 0.03f, 0.03f, 0.03f);
                     // Outlier Remove
                     removeOutliers(cloud_filtered_volume, config);
 
                     // Angle Points 계산
-                    //calculateAnglePoints(start_min_y_point, end_min_y_point, viewer);
+
+                    calculateAnglePoints(start_max_y_point, end_max_y_point, start_max_x_point, end_max_x_point, viewer);
 
                     // 추가 각도 보정 (재계산 필요)
                     float COS_THETA_updated = cos(angle_degrees * M_PI / 180.0);
@@ -1895,7 +1936,7 @@ int main(int argc, const char* argv[]) {
 
                     if (result_height != 0 && result_width != 0 && result_length != 0) {
                         bool result_status = true;
-                        
+
                         float ground_correction_mm = 0.0f;
                         if (ground_height_fixed) {
                             ground_correction_mm = fixed_ground_height * 1000.0f;
@@ -1913,12 +1954,12 @@ int main(int argc, const char* argv[]) {
                             "\"timestamp\": \"" + getCurrentTime() + "\", "
                             "\"points\": [";
 
-                        voxelizePointCloud(cloud_pcd_local, 0.05, 0.02, 0.05);
+                        voxelizePointCloud(cloud_pcd_local, 0.03, 0.03, 0.03);
 
                         viewer->removePointCloud("cloud_pcd");
                         viewer->addPointCloud<pcl::PointXYZ>(cloud_pcd_local, "cloud_pcd");
 
-                        /*for (size_t i = 0; i < cloud_pcd_local->points.size(); ++i) {
+                        for (size_t i = 0; i < cloud_pcd_local->points.size(); ++i) {
                             json_result += "{"
                                 "\"x\": " + std::to_string(cloud_pcd_local->points[i].x) + ", "
                                 "\"y\": " + std::to_string(cloud_pcd_local->points[i].y) + ", "
@@ -1929,7 +1970,7 @@ int main(int argc, const char* argv[]) {
                             }
                         }
 
-                        json_result += "] }";*/
+                        json_result += "] }";
 
                         std::ostringstream oss;
                         oss << "Height: " << result_height << " mm \n"
@@ -1956,49 +1997,16 @@ int main(int argc, const char* argv[]) {
                         result_width = 0;
                         result_length = 0;
                     }
-                    //else {
-                    //    bool result_status = false;
-                    //    std::string json_result = "{"
-                    //        "\"height\": " + std::to_string(result_height) + ", "
-                    //        "\"width\": " + std::to_string(result_width) + ", "
-                    //        "\"length\": " + std::to_string(result_length) + ", "
-                    //        "\"result\": " + std::to_string(result_status) + ", "
-                    //        "\"timestamp\": \"" + getCurrentTime() + "\", "
-                    //        "\"points\": [";
-                    //    std::ostringstream oss;
-                    //    oss << "Height: " << result_height << " mm \n"
-                    //        << "Width: " << result_width << " mm \n"
-                    //        << "Length: " << result_length << " mm \n"
-                    //        << "Angle: " << angle_degrees << " deg \n"
-                    //        << "PCD: " << cloud_pcd_local->points.size() << " cnt ";
-
-                    //    std::string result = oss.str();
-
-                    //    viewer->removeShape("result");
-                    //    viewer->addText(result.c_str(), 530, 70, 20, 1, 1, 1, "result");
-
-                    //    std::string msg_pub = "MID360>LIS " + json_result;
-                    //    zmq::message_t topic_msg(msg_pub.c_str(), msg_pub.length());
-                    //    publisher.send(topic_msg, zmq::send_flags::dontwait);
-
-                    //    std::cout << "[LOG] " << result << std::endl;
-
-                    //    saveToFile("[SEND]" + result);
-
-                    //    result_height = 0;
-                    //    result_width = 0;
-                    //    result_length = 0;
-                    //}
 
                 }
 
-				// -------------------------------------------------------------------------------------
-				// [모드2] 높이 측정 & 적재 작업 층 분류 + 픽업드롭
-				// -------------------------------------------------------------------------------------
+                // -------------------------------------------------------------------------------------
+                // [모드2] 높이 측정 & 적재 작업 층 분류 + 픽업드롭
+                // -------------------------------------------------------------------------------------
                 else {
                     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
                     pcl::PointCloud<pcl::PointXYZ>::Ptr rackShelfCloud(new pcl::PointCloud<pcl::PointXYZ>);
-                     
+
                     std::vector<int> shelf_point_counts(g_rack_shelf_ranges.size(), 0);
 
                     for (auto& pt : cloud_merge->points) {
@@ -2006,7 +2014,7 @@ int main(int argc, const char* argv[]) {
                         float py = pt.y;
                         float pz = pt.z;
 
-                        float x_min_all = ground_height_fixed ? -fixed_ground_height + 0.005f : -2.268f;                        
+                        float x_min_all = ground_height_fixed ? -fixed_ground_height + 0.005f : -2.272f;
                         float x_max_all = 5.61f;
 
                         if (px >= x_min_all && px <= x_max_all && py >= y_min && py <= y_max && pz >= z_min && pz <= z_max) {
@@ -2019,7 +2027,7 @@ int main(int argc, const char* argv[]) {
                                     rackShelfCloud->push_back(pt);
                                     shelf_point_counts[i]++;
                                 }
-                            }                            
+                            }
                         }
                     }
 
@@ -2027,8 +2035,8 @@ int main(int argc, const char* argv[]) {
                     cloud_filtered->height = 1;
                     rackShelfCloud->width = rackShelfCloud->size();
                     rackShelfCloud->height = 1;
-                    
-                    std::cout << "[DEBUG] rackShelfCloud points: " << rackShelfCloud->size() << std::endl;
+
+                    //std::cout << "[DEBUG] rackShelfCloud points: " << rackShelfCloud->size() << std::endl;
 
                     // Voxel Downsample
                     voxelizePointCloud(cloud_filtered, 0.05f, 0.05f, 0.05f);
@@ -2037,7 +2045,7 @@ int main(int argc, const char* argv[]) {
                     removeOutliers(cloud_filtered, config);
 
                     removePreviousPalletVisualizations(viewer);
-                    
+
                     for (size_t i = 0; i < g_rack_shelf_ranges.size(); ++i) {
                         std::string text_id = "shelf_" + std::to_string(i) + "_count";
                         viewer->removeShape(text_id);
@@ -2055,7 +2063,7 @@ int main(int argc, const char* argv[]) {
                     PalletInfo pi = identifyPallet(viewer, cloud_filtered, shelf_point_counts);
                     float Pallet_height = (pallet_height_fixed) ? fixed_pallet_height + fixed_ground_height : pi.P_height + fixed_ground_height;
 
-                    if (shelf_point_counts[0] >= 350 && shelf_point_counts[1] >= 150 && shelf_point_counts[2] >= 20){
+                    if (shelf_point_counts[0] >= 1800 && shelf_point_counts[1] >= 500 && shelf_point_counts[2] >= 80) {
                         if (!pallet_height_fixed) {
                             fixed_pallet_height = pi.P_height;
                             pallet_height_fixed = true;
@@ -2073,6 +2081,10 @@ int main(int argc, const char* argv[]) {
                         }
                     } // 2층 백레스트로 가려져서 포크 높이가 2~2.1m일때, 350~2500개의 선반1~2 점 개수 세고 -> 선반앞, 고정
 
+
+
+
+
                     else {
                         if (pallet_height_fixed) {
                             pallet_height_fixed = false;
@@ -2080,7 +2092,7 @@ int main(int argc, const char* argv[]) {
                             std::cout << "[INFO] Pallet Height Fixed Reset" << std::endl;
                         }
                     }
-                    
+
                     PalletInfo pallet_info;
                     if (pallet_height_fixed) {
                         pallet_info.is_pallet = true;
@@ -2096,7 +2108,7 @@ int main(int argc, const char* argv[]) {
                         previous_index++;
                     }
                     processPoints(cloud_filtered, viewer, previous_pallet_index, shelf_point_counts);
-                    
+
                     std::cout << "LOAD: " << PickUp << std::endl;
                     if (shelf_point_counts[0] >= 1000 && shelf_point_counts[1] == 0 && shelf_point_counts[2] == 0 &&
                         PickUp) {
@@ -2109,34 +2121,53 @@ int main(int argc, const char* argv[]) {
                     std::string pickup_text = PickUp || PickUp_1 ? "LOAD: PickUp" : "LOAD: Drop";
                     viewer->addText(pickup_text, 20, 320, 30, 0, 1, 0, "pickup_status");
 
-                    // 클러스터링 및 트래킹 (V_start_process == false)
+                    //// 클러스터링 및 트래킹 (V_start_process == false)
                     //std::future<std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>> future_clusters =
                     //    std::async(std::launch::async, performClustering, cloud_filtered);
 
-                    // 클러스터링 수행
+                    //// 클러스터링 수행
                     //auto P_clusters = future_clusters.get();
-                    // 트래커 업데이트
+                    //// 트래커 업데이트
                     //tracker.update(P_clusters);
-                    // 시각화
+                    //// 시각화
                     //visualizeTrackedClusters(viewer, tracker.getTrackedClusters());
 
                     std::string pallet_stage = findPalletStage(pallet_height_fixed, fixed_pallet_height, pallet_info.P_height, g_stages);
-					std::string fix_status = pallet_height_fixed ? "In front of RACK [ Pallet Height Fixed! ]" : "Normal Status";
+                    std::string fix_status = pallet_height_fixed ? "In front of RACK [ Pallet Height Fixed! ]" : "Normal Status";
 
                     viewer->removeShape("pallet_height_text");
                     std::stringstream sss_height;
                     sss_height << "Pallet Stage: " << pallet_stage
-						<< "\nFolkLift Status: " << fix_status;
-					viewer->addText(sss_height.str(), 20, 270, 25, 0, 1, 0, "pallet_height_text");
+                        << "\nFolkLift Status: " << fix_status;
+                    viewer->addText(sss_height.str(), 20, 270, 25, 0, 1, 0, "pallet_height_text");
 
-
+                    //// Stage 판별 (포인트 카운팅 방식 사용)
+                    //std::string current_stage = "Unknown";
+                    //std::vector<int> stage_counts(g_stages.size(), 0);
+                    //if (!cloud_filtered->empty()) {
+                    //    current_stage = findStageLabel(cloud_filtered, stage_counts);
+                    //}
 
                     viewer->removePointCloud("filtered_cloud");
                     viewer->addPointCloud<pcl::PointXYZ>(cloud_filtered, "filtered_cloud");
 
-                    
+                    /*                  viewer->removeShape("stageText");
+                                      viewer->addText("Current Stage: " + current_stage,
+                                          20, 40, 20, 1, 1, 1, "stageText");*/
 
-                    // PCD 데이터 저장 (단순 누적)
+                                          //// 텍스트 표시: Stage별 포인트 개수
+                                          //for (size_t i = 0; i < g_stages.size(); ++i) {
+                                          //    std::string count_text_id = "stage" + std::to_string(i + 1) + "_count";
+                                          //    viewer->removeShape(count_text_id);
+                                          //    viewer->addText("Stage " + std::to_string(i + 1) + " Points: " + std::to_string(stage_counts[i]),
+                                          //        20, 60 + static_cast<int>(i) * 20, // y 위치: 60, 80, 100, 120
+                                          //        20, // 글자 크기
+                                          //        1, 1, 1, // 흰색
+                                          //        count_text_id);
+                                          //}
+
+
+                                          // PCD 데이터 저장 (단순 누적)
                     if (SAVE_PCD_FROM_FILE) {
                         *cloud_pcd += *cloud_merge;
                         std::cout << "[DEBUG] Accumulated " << cloud_pcd->size() << " points in cloud_pcd. \n";

@@ -1,0 +1,3 @@
+#include "resource_dev.h"
+
+IDI_APP_ICON ICON "dev_blue_icon.ico"
