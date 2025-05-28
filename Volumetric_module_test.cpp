@@ -243,15 +243,15 @@ float result_height = 0;
 float result_width = 0;
 
 FovCfg fov_cfg0 = {    // yaw_start, yaw_stop, pitch_start(안씀), pitch_stop(안씀)
-  0,     // yaw_start = 0°
-  360,   // yaw_stop  = 360°
-  0,0
+  0.0f,     // yaw_start = 0°
+  360.0f,   // yaw_stop  = 360°
+  -9.0f,52.0f
 };
-FovCfg fov_cfg1 = {    // yaw_start(안씀), yaw_stop(안씀), pitch_start, pitch_stop
-  0,0,
-  -2,    // pitch_start = -2°
-  52     // pitch_stop  = +52°
-};
+//FovCfg fov_cfg0 = {    // yaw_start(안씀), yaw_stop(안씀), pitch_start, pitch_stop
+//  0,0,
+//  -2,    // pitch_start = -2°
+//  52     // pitch_stop  = +52°
+//};
 
 
 std::atomic<uint32_t> g_lidar_handle{ 0 };
@@ -441,7 +441,7 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
         g_lidar_handle = handle;
 
         SetLivoxLidarFovCfg0(handle, &fov_cfg0, nullptr, nullptr);
-        SetLivoxLidarFovCfg1(handle, &fov_cfg1, nullptr, nullptr);
+        //SetLivoxLidarFovCfg1(handle, &fov_cfg1, nullptr, nullptr);
         EnableLivoxLidarFov(handle, 1, nullptr, nullptr);
     }
 	if (enableDualEmit && !g_dual_emit_set.load()) {
@@ -1186,7 +1186,7 @@ struct ResetCallback : public vtkCommand {
     int     default_mean_k;
     float   default_threshold;
     FovCfg  default_fov0;
-    FovCfg  default_fov1;
+    //FovCfg  default_fov1;
 
     void Execute(vtkObject*, unsigned long, void*) override {
         // 1) WATAConfig 복원
@@ -1200,11 +1200,13 @@ struct ResetCallback : public vtkCommand {
         // 3) FOV 슬라이더 복원
         yaw0Rep->SetValue(default_fov0.yaw_start);
         yaw1Rep->SetValue(default_fov0.yaw_stop);
-        pit0Rep->SetValue(default_fov1.pitch_start);
-        pit1Rep->SetValue(default_fov1.pitch_stop);
+		pit0Rep->SetValue(default_fov0.pitch_start);
+		pit1Rep->SetValue(default_fov0.pitch_stop);
+        //pit0Rep->SetValue(default_fov1.pitch_start);
+        //pit1Rep->SetValue(default_fov1.pitch_stop);
         // 4) SDK 에도 한번 더 보내기
         SetLivoxLidarFovCfg0(g_lidar_handle.load(), &default_fov0, nullptr, nullptr);
-        SetLivoxLidarFovCfg1(g_lidar_handle.load(), &default_fov1, nullptr, nullptr);
+        //SetLivoxLidarFovCfg1(g_lidar_handle.load(), &default_fov1, nullptr, nullptr);
         EnableLivoxLidarFov(g_lidar_handle.load(), 1, nullptr, nullptr);
         // 5) 카메라 리셋
         viewer->resetCamera();
@@ -1213,34 +1215,48 @@ struct ResetCallback : public vtkCommand {
 
 struct FovSliderCallback : public vtkCommand {
     static FovSliderCallback* New() { return new FovSliderCallback; }
-    uint32_t handle;
-    int field;         // 0=start_yaw, 1=stop_yaw, 2=start_pitch, 3=stop_pitch
+    int field;                   // 0 = yaw_start, 1 = yaw_stop
+    vtkTextActor* infoText = nullptr;  // 화면 텍스트 업데이트용
 
     void Execute(vtkObject* caller, unsigned long, void*) override {
         auto slider = static_cast<vtkSliderWidget*>(caller);
         double v = static_cast<vtkSliderRepresentation*>(slider->GetRepresentation())->GetValue();
 
-        // 1) FovCfg 에 값 채우기
-        switch (field) {
-        case 0: fov_cfg0.yaw_start = static_cast<int>(v); break;
-        case 1: fov_cfg0.yaw_stop = static_cast<int>(v); break;
-        case 2: fov_cfg1.pitch_start = static_cast<int>(v); break;
-        case 3: fov_cfg1.pitch_stop = static_cast<int>(v); break;
+        // yaw 설정
+        if (field == 0)       fov_cfg0.yaw_start = v;
+        else if (field == 1)  fov_cfg0.yaw_stop = v;
+		else if (field == 2)  fov_cfg0.pitch_start = v;
+		else if (field == 3)  fov_cfg0.pitch_stop = v;
+
+        // SDK에 바로 전송 (실시간 모드일 때만)
+        uint32_t h = g_lidar_handle.load();
+        if (h) {
+            SetLivoxLidarFovCfg0(h, &fov_cfg0, nullptr, nullptr);
+            EnableLivoxLidarFov(h, 1, nullptr, nullptr);
         }
-		uint32_t handle = g_lidar_handle.load();
-		if (handle == 0) return;
 
-        // 2) SDK 에 연속 전송
-        SetLivoxLidarFovCfg0(handle, &fov_cfg0, nullptr, nullptr);
-        SetLivoxLidarFovCfg1(handle, &fov_cfg1, nullptr, nullptr);
+        // 화면 텍스트 갱신
+        if (infoText) {
+            std::ostringstream ss;
+            ss << "FOV yaw = [" << fov_cfg0.yaw_start
+                << ", " << fov_cfg0.yaw_stop << "]\npitch = ["
+                << fov_cfg0.pitch_start << ", " << fov_cfg0.pitch_stop << "]";
+            infoText->SetInput(ss.str().c_str());
+        }
+    }
+};
 
-        // 3) 활성화
-        EnableLivoxLidarFov(handle, /*fov_en=*/1, nullptr, nullptr);
+struct SetFovButtonCallback : public vtkCommand {
+    static SetFovButtonCallback* New() { return new SetFovButtonCallback; }
 
-        // (디버그)
-        std::cout
-            << "[FOV] yaw[" << fov_cfg0.yaw_start << "," << fov_cfg0.yaw_stop << "] "
-            << "pit[" << fov_cfg1.pitch_start << "," << fov_cfg1.pitch_stop << "]\n";
+    void Execute(vtkObject*, unsigned long, void*) override {
+        uint32_t h = g_lidar_handle.load();
+        if (!h) return;
+        // 실제 센서에 설정 적용
+        SetLivoxLidarFovCfg0(h, &fov_cfg0, nullptr, nullptr);
+        EnableLivoxLidarFov(h, 1, nullptr, nullptr);
+        std::cout << "[SetFOV] Applied yaw=["
+            << fov_cfg0.yaw_start << "," << fov_cfg0.yaw_stop << "]\n";
     }
 };
 
@@ -1282,7 +1298,7 @@ int main(int argc, const char* argv[]) {
     const int   default_mean_k = config.mean_k;
     const float default_threshold = config.threshold;
     const FovCfg default_fov0 = fov_cfg0;   // = {0,360,0,0}
-    const FovCfg default_fov1 = fov_cfg1;   // = {0,0,-2,52}
+    //const FovCfg default_fov1 = fov_cfg1;   // = {0,0,-2,52}
 
 
     bool READ_PCD_FROM_FILE = config.read_file;
@@ -1336,13 +1352,25 @@ int main(int argc, const char* argv[]) {
     subscriber.set(zmq::sockopt::subscribe, "LIS>MID360");
 
     // 4) Viewer
-    auto viewer = std::make_shared<pcl::visualization::PCLVisualizer>("Volume Measurement Program(v1.11)");
+    auto viewer = std::make_shared<pcl::visualization::PCLVisualizer>("Volume Measurement Program(v1.1.2)");
     /*
     [Version 정리]   
     - version 1.1 : 초기 모델
-	- version 1.11 : 초기 모델
-        + 리치형vs카운터형 환경세팅 추가
+	- version 1.1.1
+        + 리치형vs카운터형 오토 환경세팅 기능 추가
 			1. dev_setting.json에 "reachoffcounter": true/false 에 따라 지면 높이, 측정 범위 변경
+			2. 리치형, 카운터형 각각 "reach_height", "counterbalance_height" 으로 지면 높이 .json 파일로 설정 가능
+		+ 실시간 모드에서 FoV 슬라이더로 Yaw/Pitch 조정 가능
+            1. 실시간 FoV 설정할 시, 라이다 설정으로 적용되어 다시 프로그램 켜도 예전 FoV 유지 (슬라이더로 새로 조절할 시 디폴트 값부터 시작)
+			2. 현재로선 실시간 모드에서만 적용 가능
+    - version 1.1.2
+        + save 모드시 실시간 .pcd파일 생성 및 저장 (이전엔 루프 종료 후 저장, vtk 및 윈도우 종료 버튼 클릭시 루프 벗어나서 저장이 안됐었음)
+        + Fov 기본값 조정 (pitch: -9~52) -> 실제론 -9 아닌 -7 적용되겠지만 sdk viewer에선 -9까지 되길래 적용시킴
+        + 
+    
+
+
+
     - 
     
     
@@ -1711,6 +1739,13 @@ int main(int argc, const char* argv[]) {
 	threshold_scb->threshold_ptr = &config;
 	threshold_sliderWidget->AddObserver(vtkCommand::InteractionEvent, threshold_scb);
 
+    vtkSmartPointer<vtkTextActor> fovInfoText = vtkSmartPointer<vtkTextActor>::New();
+    fovInfoText->GetTextProperty()->SetFontSize(16);
+    fovInfoText->GetTextProperty()->SetColor(1.0, 1.0, 1.0);
+    fovInfoText->SetPosition(20, 10);           // 적당한 위치
+    uiRen->AddActor2D(fovInfoText);
+    fovInfoText->SetInput("FOV yaw = [0,360]\npitch = [-9,52]");
+
 
     std::vector<vtkSmartPointer<vtkSliderWidget>> fovSliderWidgets;
     vtkSmartPointer<vtkSliderRepresentation2D> yawStartRep;
@@ -1721,7 +1756,7 @@ int main(int argc, const char* argv[]) {
     // 수평 시작
     auto makeFovSlider = [&](double minV, double maxV, double yNorm,
         const char* title, int field,
-        int initialValue,
+        double initialValue,
         vtkSmartPointer<vtkSliderRepresentation2D>& outRep) {
         auto rep = vtkSmartPointer<vtkSliderRepresentation2D>::New();
         rep->SetMinimumValue(minV);
@@ -1756,8 +1791,8 @@ int main(int argc, const char* argv[]) {
 
 
         auto cb = vtkSmartPointer<FovSliderCallback>::New();
-        cb->handle = g_lidar_handle.load();
         cb->field = field;
+        cb->infoText = fovInfoText.Get();
         widget->AddObserver(vtkCommand::InteractionEvent, cb);
 
         fovSliderWidgets.push_back(widget);
@@ -1766,10 +1801,11 @@ int main(int argc, const char* argv[]) {
     };
 
     // 네 개의 슬라이더 달기
-    makeFovSlider(0, 360, 0.25, "Yaw Start", 0, 0, yawStartRep);
-    makeFovSlider(0, 360, 0.20, "Yaw Stop", 1, 360, yawStopRep);
-    makeFovSlider(-2, 52, 0.15, "Pitch Start", 2, -2, pitStartRep);
-    makeFovSlider(-2, 52, 0.10, "Pitch Stop", 3, 52, pitStopRep);
+    makeFovSlider(0, 360, 0.25, "Yaw Start", 0, fov_cfg0.yaw_start, yawStartRep);
+    makeFovSlider(0, 360, 0.20, "Yaw Stop", 1, fov_cfg0.yaw_stop, yawStopRep);
+    makeFovSlider(-9, 52, 0.15, "Pitch Start", 2, fov_cfg0.pitch_start, pitStartRep);
+    makeFovSlider(-9, 52, 0.10, "Pitch Stop", 3, fov_cfg0.pitch_stop, pitStopRep);
+
 
 
     // ── 리셋 버튼 표현 ──
@@ -1807,7 +1843,7 @@ int main(int argc, const char* argv[]) {
     cbReset->default_mean_k = default_mean_k;
     cbReset->default_threshold = default_threshold;
     cbReset->default_fov0 = default_fov0;
-    cbReset->default_fov1 = default_fov1;
+    //cbReset->default_fov1 = default_fov1;
     resetBtn->AddObserver(vtkCommand::StateChangedEvent, cbReset);
 
     viewer->getRenderWindow()->Render();
@@ -1864,7 +1900,7 @@ int main(int argc, const char* argv[]) {
                 }
             }
             else if (SAVE_PCD_FROM_FILE) {
-                ss << "Mode: Save\n(" << SAVE_PCD_FILE_NAME << ") ";
+                ss << "Mode: Save\n(" << SAVE_PCD_FILE_NAME << ") \n";
             }
             else { ss << "Mode: Real-time"; }
 
@@ -2016,7 +2052,7 @@ int main(int argc, const char* argv[]) {
                 float loadROI_x1_min = -fixed_ground_height + 0.1f;
                 float loadROI_x1_max = loadROI_x1_min + 1.9f;
                 float loadROI_y_min = -0.9f;
-				float loadROI_y_max = config.flag_reach_off_counter ? -0.45f : -0.20f;
+				float loadROI_y_max = config.flag_reach_off_counter ? -0.45f : -0.15f;
                 float loadROI_z_min = config.flag_reach_off_counter ? 0.35f : 0.20f;
                 float loadROI_z_max = config.flag_reach_off_counter ? 0.65 : 0.50f;
 
@@ -2078,7 +2114,7 @@ int main(int argc, const char* argv[]) {
                 float roiVolXMin = -fixed_ground_height + 0.25f;
                 float roiVolXMax = roiVolXMin + 1.9f;
                 float roiVolYMin = config.flag_reach_off_counter ? -1.65f : -1.40f;
-                float roiVolYMax = config.flag_reach_off_counter ? -0.45f : -0.20f;
+                float roiVolYMax = config.flag_reach_off_counter ? -0.45f : -0.18f;
                 float roiVolZMin = config.flag_reach_off_counter ? -0.20f : -0.25f;
                 float roiVolZMax = config.flag_reach_off_counter ? 1.20f : 1.25f;
 
@@ -2311,7 +2347,21 @@ int main(int argc, const char* argv[]) {
                 if (SAVE_PCD_FROM_FILE) {
                     *cloud_pcd += *cloud_merge;
                     std::cout << "[DEBUG] Accumulated " << cloud_pcd->size() << " points in cloud_pcd. \n";
-					ss << cloud_pcd->size() << " pts";
+
+					if (pcl::io::savePCDFileBinary(SAVE_PCD_FILE_NAME, *cloud_pcd) == 0) {
+						std::cout << "[INFO] Saved " << cloud_pcd->size()
+							<< " points to " << SAVE_PCD_FILE_NAME << std::endl;
+
+						std::uintmax_t bytes = std::filesystem::file_size(SAVE_PCD_FILE_NAME);
+						double mb = bytes / (1024.0 * 1024.0);
+
+                        ss << cloud_pcd->size() << " pts";
+						ss << " | Size: " << std::fixed << std::setprecision(2) << mb << " MB";
+					}
+					else {
+						PCL_ERROR("Failed to save PCD file to %s. \n", SAVE_PCD_FILE_NAME.c_str());
+					}
+
                 }
 
                 // 파일 모드라면 다음 chunk 대기 위해 처리 종료
@@ -2320,7 +2370,7 @@ int main(int argc, const char* argv[]) {
                 }
 
                 StatusPanel->SetInput(ss.str().c_str());
-                StatusPanel->SetPosition(550, 650);
+                StatusPanel->SetPosition(500, 650);
 
                 rw->Render();
 
@@ -2333,17 +2383,6 @@ int main(int argc, const char* argv[]) {
             error_message += e.what();
             std::cerr << error_message << std::endl;
             saveToFile(error_message);
-        }
-    }
-    // 종료 시 PCD 저장
-    if (SAVE_PCD_FROM_FILE && !cloud_pcd->empty()) {
-        std::cout << "[INFO] Saving point cloud... " << std::endl;
-        if (pcl::io::savePCDFileBinary(SAVE_PCD_FILE_NAME, *cloud_pcd) == 1) {
-            PCL_ERROR("Failed to save PCD file to %s. \n", SAVE_PCD_FILE_NAME.c_str());
-        }
-        else {
-            std::cout << "[INFO] Saved " << cloud_pcd->size()
-                << " points to " << SAVE_PCD_FILE_NAME << std::endl;
         }
     }
 

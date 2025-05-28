@@ -1,0 +1,45 @@
+[ 소프트웨어 사용권 계약서 / SOFTWARE LICENSE AGREEMENT ]
+
+본 소프트웨어(이하 "프로그램")는 (주)와따에이아이(WATA AI Inc.)에서 개발한 지게차 적재물 부피 측정 시스템의 구성 요소로, 리복스 LiDAR MID-360 센서를 기반으로 작동합니다.
+
+이 프로그램의 사용자는 다음 조건에 동의해야 합니다:
+
+1. 이 프로그램은 (주)와따에이아이 소속 연구원 또는 협력사에게만 배포되며, 외부 재배포를 금지합니다.
+2. 본 프로그램은 지게차 운용 환경에서의 실시간 적재물 부피 측정을 목적으로 설계되었으며, 타 용도로의 사용은 금지됩니다.
+3. 사용자는 이 소프트웨어를 무단으로 변경, 역컴파일, 디컴파일 또는 리버스 엔지니어링할 수 없습니다.
+4. 프로그램의 출력 데이터는 보조 수단일 뿐이며, 실제 적재 판단은 작업자의 책임하에 이루어져야 합니다.
+5. 본 소프트웨어의 사용 또는 오용에 따라 발생하는 모든 손해에 대해 (주)와따에이아이는 책임을 지지 않습니다.
+
+프로젝트: 지게차 부피 측정 프로그램  
+프로그램 명: VolumeMeasure.exe
+센서 장비: Livox MID-360 LiDAR  
+개발자: 원도연 연구원 (Daniel Won)  
+소속: (주)와따에이아이 (WATA AI Inc.)  
+버전: v1.11  
+최종 수정일: 2025년 5월 28일
+
+ⓒ 2025 WATA AI Inc. All rights reserved.
+
+---
+
+[ ENGLISH VERSION ]
+
+This software (the "Program") is part of the forklift volume measurement system developed by WATA AI Inc., using the Livox MID-360 LiDAR sensor.
+
+The user agrees to the following terms:
+
+1. This program is distributed only to researchers or partners of WATA AI Inc. Redistribution is prohibited.
+2. The program is designed solely for forklift load volume estimation in logistics environments. Use for other purposes is not allowed.
+3. Users may not alter, decompile, or reverse-engineer the software in any form.
+4. The program's output is supplementary and should not be solely relied upon for operational decisions.
+5. WATA AI Inc. bears no responsibility for any damages caused by the use or misuse of this software.
+
+Project: Forklift Volume Measurement Software  
+Program Name: VolumeMeasure.exe
+Sensor: Livox MID-360 LiDAR  
+Developer: Daniel Won (Research Engineer)  
+Organization: WATA AI Inc.  
+Version: v1.11
+Last Updated: May 28, 2025
+
+ⓒ 2025 WATA AI Inc. All rights reserved.
