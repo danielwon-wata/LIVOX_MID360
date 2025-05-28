@@ -15,7 +15,7 @@
 센서 장비: Livox MID-360 LiDAR  
 개발자: 원도연 연구원 (Daniel Won)  
 소속: (주)와따에이아이 (WATA AI Inc.)  
-버전: v1.11  
+버전: v1.1.2  
 최종 수정일: 2025년 5월 28일
 
 ⓒ 2025 WATA AI Inc. All rights reserved.
@@ -39,7 +39,7 @@ Program Name: VolumeMeasure.exe
 Sensor: Livox MID-360 LiDAR  
 Developer: Daniel Won (Research Engineer)  
 Organization: WATA AI Inc.  
-Version: v1.11
+Version: v1.1.2
 Last Updated: May 28, 2025
 
 ⓒ 2025 WATA AI Inc. All rights reserved.
