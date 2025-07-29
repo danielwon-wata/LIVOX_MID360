@@ -34,6 +34,18 @@
     <ClCompile Include="Cluster_TEST.cpp">
       <Filter>Source Files\TEST</Filter>
     </ClCompile>
+    <ClCompile Include="config.cpp">
+      <Filter>Source Files\TEST\config</Filter>
+    </ClCompile>
+    <ClCompile Include="vtk_ui.cpp">
+      <Filter>Source Files\TEST\vtk_ui</Filter>
+    </ClCompile>
+    <ClCompile Include="Pantos_Volumetric_CounterBalance.cpp">
+      <Filter>Source Files\Pantos</Filter>
+    </ClCompile>
+    <ClCompile Include="Pantos_Volumetric_Reach.cpp">
+      <Filter>Source Files\Pantos</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source Files">
@@ -60,6 +72,12 @@
     <Filter Include="Source Files\TEST">
       <UniqueIdentifier>{e73cd89a-53ad-4943-ba5e-feb9f25f3db4}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\TEST\config">
+      <UniqueIdentifier>{c2499c30-f880-4db5-bdae-936e083f5e46}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\TEST\vtk_ui">
+      <UniqueIdentifier>{c244af1e-4ada-4558-86eb-f9edbfee15e3}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <Text Include="CMakeLists.txt" />
@@ -85,6 +103,13 @@
     <ClInclude Include="resource1.h" />
     <ClInclude Include="resource_dev.h">
       <Filter>Source Files\TEST</Filter>
+    </ClInclude>
+    <ClInclude Include="Heartbeat.hpp" />
+    <ClInclude Include="config.hpp">
+      <Filter>Source Files\TEST\config</Filter>
+    </ClInclude>
+    <ClInclude Include="vtk_ui.hpp">
+      <Filter>Source Files\TEST\vtk_ui</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -1,4 +1,4 @@
-//
+ï»¿//
 // The MIT License (MIT)
 //
 
@@ -41,7 +41,7 @@
 #include <fstream>
 #include <algorithm>
 
-#include <omp.h> // º´·ÄÃ³¸®
+#include <omp.h> // ë³‘ë ¬ì²˜ë¦¬
 #include <future>
 #include <atomic>
 
@@ -74,13 +74,13 @@
 
 
 
-// ¸¶Áö¸·À¸·Î LiDAR µ¥ÀÌÅÍ¸¦ ¹ŞÀº ½Ã°£ (¹Ğ¸®ÃÊ)
+// ë§ˆì§€ë§‰ìœ¼ë¡œ LiDAR ë°ì´í„°ë¥¼ ë°›ì€ ì‹œê°„ (ë°€ë¦¬ì´ˆ)
 std::atomic<long long> lastLidarTimeMillis(0);
 
 std::atomic<bool> heartbeatRunning(true);
 
 // ----------------------------------------------------------------------------
-// JSON ±¸Á¶Ã¼
+// JSON êµ¬ì¡°ì²´
 // ----------------------------------------------------------------------------
 struct CaliROIBox {
     float x_min, x_max;
@@ -91,7 +91,7 @@ CaliROIBox ground_roi_box = {
     -2.5f, -1.8f,
     -0.65f, -0.3f,
     0.25f, 0.55f
-    //0.2f, 0.6f // Æ÷Å© »çÀÌ
+    //0.2f, 0.6f // í¬í¬ ì‚¬ì´
 };
 
 
@@ -113,7 +113,7 @@ struct WATAConfig {
     bool save_file = false;
     std::string read_file_name = "";
     std::string save_file_name = "";
-    // Ãß°¡
+    // ì¶”ê°€
     int mean_k = 0;
     float threshold = 0;
     int height_threshold = 0;
@@ -124,20 +124,20 @@ struct WATAConfig {
 
 
 // ----------------------------------------------------------------------------
-// Àü¿ª
+// ì „ì—­
 // ----------------------------------------------------------------------------
 std::mutex control_mutex;
 std::mutex g_mutex;
 bool V_start_process = false;
-bool reading_active = true; // ÃÊ±â »óÅÂ´Â ÀĞ±â È°¼ºÈ­
-bool is_paused = false; // ÃÊ±â »óÅÂ´Â ÀÏ½ÃÁ¤Áö ¾Æ´Ô
+bool reading_active = true; // ì´ˆê¸° ìƒíƒœëŠ” ì½ê¸° í™œì„±í™”
+bool is_paused = false; // ì´ˆê¸° ìƒíƒœëŠ” ì¼ì‹œì •ì§€ ì•„ë‹˜
 
 bool pallet_height_fixed = false;
 float fixed_pallet_height = 0.0f;
 
-bool heightCalibration_mode = false; // ³ôÀÌ Ä¶¸®ºê·¹ÀÌ¼Ç 
+bool heightCalibration_mode = false; // ë†’ì´ ìº˜ë¦¬ë¸Œë ˆì´ì…˜ 
 bool ground_height_fixed = false;
-bool showGroundROI = false;    // Áö¸é Ä¶¸®ºê·¹ÀÌ¼Ç¿ë ROI ¹Ú½º¸¦ Ç¥½ÃÇÒÁö ¿©ºÎ
+bool showGroundROI = false;    // ì§€ë©´ ìº˜ë¦¬ë¸Œë ˆì´ì…˜ìš© ROI ë°•ìŠ¤ë¥¼ í‘œì‹œí• ì§€ ì—¬ë¶€
 
 bool inFrontofRack = false;
 
@@ -155,8 +155,11 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_merge(new pcl::PointCloud<pcl::PointXY
 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_raw(new pcl::PointCloud<pcl::PointXYZ>);
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_ground(new pcl::PointCloud<pcl::PointXYZ>);
+pcl::PointCloud<pcl::PointXYZ>::Ptr Cali_cloud_ground(new pcl::PointCloud<pcl::PointXYZ>);
 
-std::vector<float> x_lengths(vector_size); // °íÁ¤ Å©±â·Î ÃÊ±âÈ­ ½ÃÅ´
+auto viewer = std::make_shared<pcl::visualization::PCLVisualizer>("Pantos_Volumetric_Viewer");
+
+std::vector<float> x_lengths(vector_size); // ê³ ì • í¬ê¸°ë¡œ ì´ˆê¸°í™” ì‹œí‚´
 
 
 std::vector<std::string> volume_line_ids;
@@ -180,7 +183,7 @@ static std::atomic<float>      imu_yaw_deg{ 0.0f };
 std::ostringstream oss;
 
 // ----------------------------------------------------------------------------
-// JSON ¼³Á¤ ÀĞ±â
+// JSON ì„¤ì • ì½ê¸°
 // ----------------------------------------------------------------------------
 using json = nlohmann::json;
 
@@ -188,11 +191,11 @@ std::string removeComments(const std::string& jsonString) {
     std::regex singleLineCommentRegex("//.*?$");
     std::regex multiLineCommentRegex("/\\*.*?\\*/");
 
-    // ´ÜÀÏ ¹× ´ÙÁß Çà ÁÖ¼® Á¦°Å
+    // ë‹¨ì¼ ë° ë‹¤ì¤‘ í–‰ ì£¼ì„ ì œê±°
     std::string withoutComments = std::regex_replace(jsonString, multiLineCommentRegex, "");
     withoutComments = std::regex_replace(withoutComments, singleLineCommentRegex, "", std::regex_constants::format_default);
 
-    // °¢ ÁÙÀ» Æ®¸²ÇÏ¿© Á¤¸®
+    // ê° ì¤„ì„ íŠ¸ë¦¼í•˜ì—¬ ì •ë¦¬
     std::stringstream ss(withoutComments);
     std::string cleanedJson, line;
     while (std::getline(ss, line)) {
@@ -216,7 +219,7 @@ WATAConfig readConfigFromJson(const std::string& filePath) {
     std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     file.close();
 
-    // ÁÖ¼® Á¦°Å
+    // ì£¼ì„ ì œê±°
     std::string jsonWithoutComments = removeComments(content);
 
     json j;
@@ -263,7 +266,7 @@ WATAConfig readConfigFromJson(const std::string& filePath) {
 }
 
 // ----------------------------------------------------------------------------
-// ±âÅ¸ À¯Æ¿
+// ê¸°íƒ€ ìœ í‹¸
 // ----------------------------------------------------------------------------
 std::string getCurrentTime() {
     auto now = std::chrono::system_clock::now();
@@ -295,13 +298,13 @@ void saveToFile(const std::string& json_result) {
     outfile.close();
 }
 
-// Æ÷ÀÎÆ® Å¬¶ó¿ìµå µ¥ÀÌÅÍ ÃÊ±âÈ­ ÇÔ¼ö
+// í¬ì¸íŠ¸ í´ë¼ìš°ë“œ ë°ì´í„° ì´ˆê¸°í™” í•¨ìˆ˜
 void resetPointCloudData() {
     std::lock_guard<std::mutex> lock(g_mutex);
     cloud_pcd->clear();
     cloud_raw->clear();
     cloud_merge->clear();
-    // ´Ù¸¥ Å¬¶ó¿ìµå µ¥ÀÌÅÍµµ ÃÊ±âÈ­ ÇÊ¿ä ½Ã Ãß°¡
+    // ë‹¤ë¥¸ í´ë¼ìš°ë“œ ë°ì´í„°ë„ ì´ˆê¸°í™” í•„ìš” ì‹œ ì¶”ê°€
     x_lengths.clear();
 
 
@@ -321,23 +324,23 @@ void updateCameraPositionText(pcl::visualization::PCLVisualizer::Ptr viewer) {
         << camera.pos[4] << ", "
         << camera.pos[5] << ")";
 
-    // ±âÁ¸ ÅØ½ºÆ® Á¦°Å
+    // ê¸°ì¡´ í…ìŠ¤íŠ¸ ì œê±°
     viewer->removeShape("camera_position_text");
 
-    // »õ·Î¿î ÅØ½ºÆ® Ãß°¡
+    // ìƒˆë¡œìš´ í…ìŠ¤íŠ¸ ì¶”ê°€
     viewer->addText(oss.str(), 20, 700, 15, 1.0, 1.0, 1.0, "camera_position_text");
 }
 
 
 // ----------------------------------------------------------------------------
-// ¸®¼Ò½º Äİ¹é (½Ç½Ã°£ ¸ğµå)
+// ë¦¬ì†ŒìŠ¤ ì½œë°± (ì‹¤ì‹œê°„ ëª¨ë“œ)
 // ----------------------------------------------------------------------------
 void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEthernetPacket* data, void* client_data) {
     if (!data) return;
 
     auto nowMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
-	lastLidarTimeMillis.store(nowMillis);
+    lastLidarTimeMillis.store(nowMillis);
 
     const WATAConfig* config = static_cast<const WATAConfig*>(client_data);
     if (data->data_type == kLivoxLidarCartesianCoordinateHighData) {
@@ -355,7 +358,7 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
         cloud_raw->width = cloud_raw->points.size();
         cloud_raw->height = 1;
 
-        // ÀÏÁ¤ Æ÷ÀÎÆ®(=96*iteration=9600)¸¶´Ù cloud_merge¿¡ º¹»ç
+        // ì¼ì • í¬ì¸íŠ¸(=96*iteration=9600)ë§ˆë‹¤ cloud_mergeì— ë³µì‚¬
         if (cloud_raw->points.size() >= 96 * config->iteration) {
             pcl::copyPointCloud(*cloud_raw, *cloud_merge);
             cloud_raw->clear();
@@ -364,7 +367,7 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
 }
 
 // ----------------------------------------------------------------------------
-// ÀüÃ³¸® 1) Voxel
+// ì „ì²˜ë¦¬ 1) Voxel
 // ----------------------------------------------------------------------------
 void voxelizePointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     float x_leaf, float y_leaf, float z_leaf)
@@ -383,20 +386,20 @@ void voxelizePointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
 }
 
 // ----------------------------------------------------------------------------
-// ÀüÃ³¸® 2) Outlier Remove
+// ì „ì²˜ë¦¬ 2) Outlier Remove
 // ----------------------------------------------------------------------------
 void removeOutliers(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, const WATAConfig& config) {
     pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
     sor.setInputCloud(cloud);
 
     sor.setMeanK(config.mean_k);
-    sor.setStddevMulThresh(config.threshold);  // ´õ Ä¿Áö¸é Á¦°Å°¡ ÁÙ°í, ´õ ÀÛ¾ÆÁö¸é Á¦°Å°¡ ¸¹¾ÆÁü
+    sor.setStddevMulThresh(config.threshold);  // ë” ì»¤ì§€ë©´ ì œê±°ê°€ ì¤„ê³ , ë” ì‘ì•„ì§€ë©´ ì œê±°ê°€ ë§ì•„ì§
 
     sor.filter(*cloud);
 }
 
 // ----------------------------------------------------------------------------
-// [ÀÚµ¿ ³ôÀÌ Ä¶¸®ºê·¹ÀÌ¼Ç] Áö¸é Å½Áö
+// [ìë™ ë†’ì´ ìº˜ë¦¬ë¸Œë ˆì´ì…˜] ì§€ë©´ íƒì§€
 // ----------------------------------------------------------------------------
 float calculateGroundHeight(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_ground) {
     float ground_height_sum = 0.0f;
@@ -418,14 +421,14 @@ float calculateGroundHeight(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_ground) {
 }
 
 void showGroundROIBox(pcl::visualization::PCLVisualizer* viewer, bool show) {
-    // ROI »óÀÚ¸¦ Ç¥½Ã ¶Ç´Â Á¦°Å
+    // ROI ìƒìë¥¼ í‘œì‹œ ë˜ëŠ” ì œê±°
     if (show) {
         viewer->removeShape("ground_roi_box");
         viewer->addCube(
-            ground_roi_box.x_min, ground_roi_box.x_max,    // X ¹üÀ§
-            ground_roi_box.y_min, ground_roi_box.y_max,  // Y ¹üÀ§
-            ground_roi_box.z_min, ground_roi_box.z_max,     // Z ¹üÀ§
-            1.0, 0.0, 1.0, // (R=1.0, G=1.0, B=0.0) ³ë¶õ»ö
+            ground_roi_box.x_min, ground_roi_box.x_max,    // X ë²”ìœ„
+            ground_roi_box.y_min, ground_roi_box.y_max,  // Y ë²”ìœ„
+            ground_roi_box.z_min, ground_roi_box.z_max,     // Z ë²”ìœ„
+            1.0, 0.0, 1.0, // (R=1.0, G=1.0, B=0.0) ë…¸ë€ìƒ‰
             "ground_roi_box"
         );
         viewer->setShapeRenderingProperties(
@@ -440,29 +443,29 @@ void showGroundROIBox(pcl::visualization::PCLVisualizer* viewer, bool show) {
 }
 
 // ----------------------------------------------------------------------------
-// Å°º¸µå Äİ¹é ÇÔ¼ö
+// í‚¤ë³´ë“œ ì½œë°± í•¨ìˆ˜
 // ----------------------------------------------------------------------------
 void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void* viewer_void) {
     auto viewer = static_cast<pcl::visualization::PCLVisualizer*>(viewer_void);
 
     if (event.keyDown()) {
-        if (event.getKeySym() == "p" || event.getKeySym() == "P") { // 'p' Å°: ÀÏ½ÃÁ¤Áö Åä±Û
+        if (event.getKeySym() == "p" || event.getKeySym() == "P") { // 'p' í‚¤: ì¼ì‹œì •ì§€ í† ê¸€
             std::lock_guard<std::mutex> lock(control_mutex);
-            is_paused = !is_paused; // ÀÏ½ÃÁ¤Áö »óÅÂ Åä±Û
+            is_paused = !is_paused; // ì¼ì‹œì •ì§€ ìƒíƒœ í† ê¸€
             if (is_paused)
                 std::cout << "[INFO] Data reading paused.\n";
             else
                 std::cout << "[INFO] Data reading resumed.\n";
         }
-        else if (event.getKeySym() == "v" || event.getKeySym() == "V") { // 'v' Å°: V_start_process Åä±Û
+        else if (event.getKeySym() == "v" || event.getKeySym() == "V") { // 'v' í‚¤: V_start_process í† ê¸€
             std::lock_guard<std::mutex> lock(control_mutex);
-            V_start_process = !V_start_process; // V_start_process »óÅÂ Åä±Û
+            V_start_process = !V_start_process; // V_start_process ìƒíƒœ í† ê¸€
             if (V_start_process)
                 std::cout << "[INFO] V_start_process set to true.\n";
             else
                 std::cout << "[INFO] V_start_process set to false.\n";
 
-            // Æ÷ÀÎÆ® Å¬¶ó¿ìµå µ¥ÀÌÅÍ ÃÊ±âÈ­
+            // í¬ì¸íŠ¸ í´ë¼ìš°ë“œ ë°ì´í„° ì´ˆê¸°í™”
             //resetPointCloudData();
 
             viewer->removeShape("v_start_process_text");
@@ -498,7 +501,7 @@ void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void*
 }
 
 // ----------------------------------------------------------------------------
-// [ºÎÇÇ ÃøÁ¤] Æò±Õ °è»ê
+// [ë¶€í”¼ ì¸¡ì •] í‰ê·  ê³„ì‚°
 // ----------------------------------------------------------------------------
 float calculateAverage(std::vector<float>& values) {
     std::sort(values.begin(), values.end());
@@ -522,7 +525,7 @@ float calculateAverageX(std::vector<float>& x_lengths) {
 }
 
 // ----------------------------------------------------------------------------
-// [ºÎÇÇ ÃøÁ¤] YZ Æò¸é Å¬·¯½ºÅÍ¸µ
+// [ë¶€í”¼ ì¸¡ì •] YZ í‰ë©´ í´ëŸ¬ìŠ¤í„°ë§
 // ----------------------------------------------------------------------------
 void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::visualization::PCLVisualizer::Ptr viewer) {
     pcl::SACSegmentation<pcl::PointXYZ> seg;
@@ -552,14 +555,14 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::visualization
             }
 
 
-            // Æò¸éÀÇ Æ÷ÀÎÆ® Å¬¶ó¿ìµå »ı¼º
+            // í‰ë©´ì˜ í¬ì¸íŠ¸ í´ë¼ìš°ë“œ ìƒì„±
             pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_plane(new pcl::PointCloud<pcl::PointXYZ>);
             extract.setInputCloud(cloud);
             extract.setIndices(inliers);
             extract.setNegative(false);
             extract.filter(*cloud_plane);
 
-            // Å¬·¯½ºÅÍ¸µ
+            // í´ëŸ¬ìŠ¤í„°ë§
             pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>());
             tree->setInputCloud(cloud_plane);
 
@@ -605,38 +608,38 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::visualization
     catch (const std::exception& e) {
         std::cerr << "[detectPlaneYZ ERROR] Exception: " << e.what() << std::endl;
     }
-      if (max_length_x > 0) {
-      std::string line_id_x = "longest_line_x";
+    if (max_length_x > 0) {
+        std::string line_id_x = "longest_line_x";
 
-      viewer->removeShape(line_id_x);
-      viewer->addLine(p1_x, p2_x, 1.0, 0.0, 0.0, line_id_x);
+        viewer->removeShape(line_id_x);
+        viewer->addLine(p1_x, p2_x, 1.0, 0.0, 0.0, line_id_x);
 
-      bool is_duplicate = false;
-      for (size_t i = 0; i < x_lengths.size(); ++i) {
-          if (x_lengths[i] == p2_x.x) {
-              is_duplicate = true;
-              break;
-          }
-      }
+        bool is_duplicate = false;
+        for (size_t i = 0; i < x_lengths.size(); ++i) {
+            if (x_lengths[i] == p2_x.x) {
+                is_duplicate = true;
+                break;
+            }
+        }
 
-      if (!is_duplicate) {
-          std::cout << "Height" + std::to_string(x_index) + " : " + std::to_string(static_cast<int>(p2_x.x * 1000)) << std::endl;
-          saveToFile("Height" + std::to_string(x_index) + " : " + std::to_string(static_cast<int>(p2_x.x * 1000)));
-          if (x_lengths.size() < vector_size) {
-              x_lengths.push_back(p2_x.x);
-          }
-          else {
-              x_lengths[x_index] = p2_x.x;
-          }
+        if (!is_duplicate) {
+            std::cout << "Height" + std::to_string(x_index) + " : " + std::to_string(static_cast<int>(p2_x.x * 1000)) << std::endl;
+            saveToFile("Height" + std::to_string(x_index) + " : " + std::to_string(static_cast<int>(p2_x.x * 1000)));
+            if (x_lengths.size() < vector_size) {
+                x_lengths.push_back(p2_x.x);
+            }
+            else {
+                x_lengths[x_index] = p2_x.x;
+            }
 
-          x_index = (x_index + 1) % vector_size;
+            x_index = (x_index + 1) % vector_size;
 
-      }
-   }
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
-// [ºÎÇÇ ÃøÁ¤] ³ôÀÌ °è»ê
+// [ë¶€í”¼ ì¸¡ì •] ë†’ì´ ê³„ì‚°
 // ----------------------------------------------------------------------------
 void calcMaxX(std::vector<float>& x_values, float& max_x_value)
 {
@@ -683,14 +686,14 @@ void calcMaxX(std::vector<float>& x_values, float& max_x_value)
 }
 
 void sendHeartbeatSignal() {
-    CURL *curl = curl_easy_init();
+    CURL* curl = curl_easy_init();
     if (curl) {
-        // °¡µğ¾ğ¿¡¼­ ÇÒ´çµÈ Æ÷ÀÎÆ®
-		const char* url = "http://localhost:8081/heartbeat";
+        // ê°€ë””ì–¸ì—ì„œ í• ë‹¹ëœ í¬ì¸íŠ¸
+        const char* url = "http://localhost:8081/heartbeat";
         curl_easy_setopt(curl, CURLOPT_URL, url);
-		curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
 
-        // Àü¼ÛÇÒ JSON ¹®ÀÚ¿­
+        // ì „ì†¡í•  JSON ë¬¸ìì—´
         const char* postData = "{\"status\":\"alive\"}";
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData);
 
@@ -698,9 +701,9 @@ void sendHeartbeatSignal() {
 
         CURLcode res = curl_easy_perform(curl);
         if (res != CURLE_OK) {
-			std::cerr << "[ERROR] Hearbeat Àü¼Û ½ÇÆĞ: " << curl_easy_strerror(res) << std::endl;
+            std::cerr << "[ERROR] Hearbeat ì „ì†¡ ì‹¤íŒ¨: " << curl_easy_strerror(res) << std::endl;
         }
-		curl_easy_cleanup(curl);
+        curl_easy_cleanup(curl);
     }
 }
 
@@ -715,19 +718,21 @@ void heartbeatThreadFunction() {
             long long lastLidarTime = lastLidarTimeMillis.load();
             long long elapsed = nowMillis - lastLidarTime;
 
-            if (elapsed > 5000) { // 5ÃÊ ÀÌ»ó °æ°úÇÏ¸é
-                std::cerr << "[ERROR] LiDAR µ¥ÀÌÅÍ ¼ö½Å Áß´ÜµÊ. ÇÁ·Î±×·¥ Á¾·á." << std::endl;
+            if (elapsed > 5000) { // 5ì´ˆ ì´ìƒ ê²½ê³¼í•˜ë©´
+                std::cerr << "[ERROR] LiDAR ë°ì´í„° ìˆ˜ì‹  ì¤‘ë‹¨ë¨. í”„ë¡œê·¸ë¨ ì¢…ë£Œ." << std::endl;
                 heartbeatRunning.store(false);
                 break;
             }
-            sendHeartbeatSignal(); // heartbeat ½ÅÈ£ Àü¼Û ÇÔ¼ö Àü¼Û
+            sendHeartbeatSignal(); // heartbeat ì‹ í˜¸ ì „ì†¡ í•¨ìˆ˜ ì „ì†¡
         }
-        std::this_thread::sleep_for(std::chrono::seconds(1)); // 1ÃÊ¸¶´Ù ½ÅÈ£ Àü¼Û
+        viewer->removeShape("HB_status");
+        viewer->addText(std::string("HeartBeat: ") + (heartbeat_enabled.load() ? "O" : "X"), 20, 320, 14, 1.0, 1.0, 0.0, "HB_status");
 
+        std::this_thread::sleep_for(std::chrono::seconds(1)); // 1ì´ˆë§ˆë‹¤ ì‹ í˜¸ ì „ì†¡
     }
 }
 
-// ¹ÙÀÌ¾î½º °è»ê¿ë º¯¼ö
+// ë°”ì´ì–´ìŠ¤ ê³„ì‚°ìš© ë³€ìˆ˜
 static bool   bias_computed = false;
 static int    bias_sample_cnt = 0;
 static float  gyro_z_bias_sum = 0.0f;
@@ -739,7 +744,7 @@ void ImuDataCallback(uint32_t handle,
     void* client_data) {
     using namespace std::chrono;
 
-    // 1) bias °è»ê ´Ü°è: Ã¹ 200»ùÇÃ(¾à 1ÃÊ) µ¿¾È gyro_z Æò±Õ°ªÀ» bias·Î »ç¿ë
+    // 1) bias ê³„ì‚° ë‹¨ê³„: ì²« 200ìƒ˜í”Œ(ì•½ 1ì´ˆ) ë™ì•ˆ gyro_z í‰ê· ê°’ì„ biasë¡œ ì‚¬ìš©
     auto* imu_arr = reinterpret_cast<LivoxLidarImuRawPoint*>(packet->data);
     float gz = imu_arr[packet->dot_num - 1].gyro_z;
 
@@ -749,10 +754,10 @@ void ImuDataCallback(uint32_t handle,
             gyro_z_bias = gyro_z_bias_sum / bias_sample_cnt;
             bias_computed = true;
         }
-        return;  // bias Ãëµæ Àü¿¡´Â ÀûºĞ ¾È ÇÔ
+        return;  // bias ì·¨ë“ ì „ì—ëŠ” ì ë¶„ ì•ˆ í•¨
     }
 
-    // 2) ½Ã°£ °£°İ °è»ê (nanosecond ´ÜÀ§)
+    // 2) ì‹œê°„ ê°„ê²© ê³„ì‚° (nanosecond ë‹¨ìœ„)
     auto now_ns = duration_cast<nanoseconds>(
         steady_clock::now().time_since_epoch()
     ).count();
@@ -763,12 +768,12 @@ void ImuDataCallback(uint32_t handle,
     }
     last_imu_time_ns.store(now_ns);
 
-    // 3) bias º¸Á¤ ¹× ³ëÀÌÁî ÀÓ°èÄ¡
+    // 3) bias ë³´ì • ë° ë…¸ì´ì¦ˆ ì„ê³„ì¹˜
     float gz_corr = gz - gyro_z_bias;
-    if (std::abs(gz_corr) < 0.005f)  // 0.005 rad/s ÀÌÇÏ´Â ¹«½Ã
+    if (std::abs(gz_corr) < 0.005f)  // 0.005 rad/s ì´í•˜ëŠ” ë¬´ì‹œ
         gz_corr = 0.0f;
 
-    // 4) ÀûºĞ ¡æ yaw ´©Àû
+    // 4) ì ë¶„ â†’ yaw ëˆ„ì 
     float delta = gz_corr * dt;      // [rad]
     float accum = yaw_rad_accum.load() + delta;
     yaw_rad_accum.store(accum);
@@ -778,42 +783,42 @@ void ImuDataCallback(uint32_t handle,
 float estimateGroundYawOffset(
     pcl::PointCloud<pcl::PointXYZ>::Ptr const& cloud_ground)
 {
-    // 1. RANSAC Æò¸é ÇÇÆÃ
+    // 1. RANSAC í‰ë©´ í”¼íŒ…
     pcl::ModelCoefficients::Ptr coeff(new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
     pcl::SACSegmentation<pcl::PointXYZ> seg;
     seg.setModelType(pcl::SACMODEL_PLANE);
     seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(0.02f);         // 2cm ÀÌ³»¸¦ Æò¸éÀ¸·Î °£ÁÖ
+    seg.setDistanceThreshold(0.02f);         // 2cm ì´ë‚´ë¥¼ í‰ë©´ìœ¼ë¡œ ê°„ì£¼
     seg.setInputCloud(cloud_ground);
     seg.segment(*inliers, *coeff);
 
     if (inliers->indices.empty()) {
-        // Æò¸é ¸ø Ã£¾ÒÀ» ¶§´Â º¸Á¤ ¾ÈÇÔ
+        // í‰ë©´ ëª» ì°¾ì•˜ì„ ë•ŒëŠ” ë³´ì • ì•ˆí•¨
         return 0.0f;
     }
 
-    // 2. Æò¸é ¹ı¼± º¤ÅÍ (a,b,c)
+    // 2. í‰ë©´ ë²•ì„  ë²¡í„° (a,b,c)
     Eigen::Vector3f normal(coeff->values[0],
         coeff->values[1],
         coeff->values[2]);
     normal.normalize();
 
-    // 3. xÃà(1,0,0) ±âÁØÀ¸·Î zÃà È¸Àü·® (yaw ¿ÀÇÁ¼Â)
-    //    atan2(b, a) À» ¼¾¼­¿¡ ¿ªÀ¸·Î Àû¿ëÇØ¾ß Áö¸éÀÌ y-z Æò¸é°ú ÆòÇàÇØÁü
+    // 3. xì¶•(1,0,0) ê¸°ì¤€ìœ¼ë¡œ zì¶• íšŒì „ëŸ‰ (yaw ì˜¤í”„ì…‹)
+    //    atan2(b, a) ì„ ì„¼ì„œì— ì—­ìœ¼ë¡œ ì ìš©í•´ì•¼ ì§€ë©´ì´ y-z í‰ë©´ê³¼ í‰í–‰í•´ì§
     float yaw_offset = std::atan2(normal.y(), normal.x());
     return yaw_offset;
 }
 
-// 2) yaw º¸Á¤·® ¸¸Å­ Æ÷ÀÎÆ®Å¬¶ó¿ìµå¸¦ ¿ªÈ¸Àü(transform) ½ÃÅ´
-//    src: ¿øº» Å¬¶ó¿ìµå, dst: º¯È¯ ÈÄ Å¬¶ó¿ìµå, yaw_offset: À§ ÇÔ¼ö¿¡¼­ ¾òÀº ¶óµğ¾È
+// 2) yaw ë³´ì •ëŸ‰ ë§Œí¼ í¬ì¸íŠ¸í´ë¼ìš°ë“œë¥¼ ì—­íšŒì „(transform) ì‹œí‚´
+//    src: ì›ë³¸ í´ë¼ìš°ë“œ, dst: ë³€í™˜ í›„ í´ë¼ìš°ë“œ, yaw_offset: ìœ„ í•¨ìˆ˜ì—ì„œ ì–»ì€ ë¼ë””ì•ˆ
 void applyYawCalibration(
     pcl::PointCloud<pcl::PointXYZ>::Ptr const& src,
     pcl::PointCloud<pcl::PointXYZ>::Ptr& dst,
     float yaw_offset)
 {
     Eigen::Affine3f tf = Eigen::Affine3f::Identity();
-    // Áö¸é ¹ı¼±->xÃà º¸Á¤À» À§ÇØ ?yaw_offset ¸¸Å­ zÃà È¸Àü
+    // ì§€ë©´ ë²•ì„ ->xì¶• ë³´ì •ì„ ìœ„í•´ â€“yaw_offset ë§Œí¼ zì¶• íšŒì „
     tf.rotate(Eigen::AngleAxisf(-yaw_offset, Eigen::Vector3f::UnitZ()));
     dst.reset(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::transformPointCloud(*src, *dst, tf);
@@ -824,7 +829,7 @@ void applyYawCalibration(
 // Main
 // ----------------------------------------------------------------------------
 int main(int argc, const char* argv[]) {
-	// ½Ã½ºÅÛ ¿À·ù ´ëÈ­»óÀÚ Ç¥½Ã¸¦ ¸·À½ (Windows Àü¿ë)
+    // ì‹œìŠ¤í…œ ì˜¤ë¥˜ ëŒ€í™”ìƒì í‘œì‹œë¥¼ ë§‰ìŒ (Windows ì „ìš©)
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
 
@@ -835,18 +840,18 @@ int main(int argc, const char* argv[]) {
     std::cout << "Current working directory: "
         << std::filesystem::current_path() << std::endl;
 
-	curl_global_init(CURL_GLOBAL_ALL); // curl Àü¿ª ÃÊ±âÈ­ (ÇÁ·Î±×·¥ ½ÃÀÛ ½Ã ÇÑ¹ø È£Ãâ)
+    curl_global_init(CURL_GLOBAL_ALL); // curl ì „ì—­ ì´ˆê¸°í™” (í”„ë¡œê·¸ë¨ ì‹œì‘ ì‹œ í•œë²ˆ í˜¸ì¶œ)
 
-    // ÇÁ·Î±×·¥ ½ÃÀÛ ½Ã, ¸¶Áö¸· LiDAR ¼ö½Å½Ã°£ ÃÊ±âÈ­
+    // í”„ë¡œê·¸ë¨ ì‹œì‘ ì‹œ, ë§ˆì§€ë§‰ LiDAR ìˆ˜ì‹ ì‹œê°„ ì´ˆê¸°í™”
     lastLidarTimeMillis.store(std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count());
 
     std::thread heartbeatThread(heartbeatThreadFunction);
-	heartbeatThread.detach(); // ½º·¹µå¸¦ ºĞ¸®ÇÏ¿© µ¶¸³ÀûÀ¸·Î ½ÇÇà
+    heartbeatThread.detach(); // ìŠ¤ë ˆë“œë¥¼ ë¶„ë¦¬í•˜ì—¬ ë…ë¦½ì ìœ¼ë¡œ ì‹¤í–‰
 
     std::vector<float> ground_samples;
 
-    // 1) ¼³Á¤ ·Îµå
+    // 1) ì„¤ì • ë¡œë“œ
     const std::string LIVOX_PATH = "config/config.json";
     const std::string WATA_PATH = "config/P_setting.json";
     WATAConfig config = readConfigFromJson(WATA_PATH);
@@ -871,7 +876,7 @@ int main(int argc, const char* argv[]) {
 
 
     if (READ_PCD_FROM_FILE) {
-        // ÆÄÀÏ¿¡¼­ PCD ·Îµå
+        // íŒŒì¼ì—ì„œ PCD ë¡œë“œ
         std::cout << "Reading point cloud: " << READ_PCD_FILE_NAME << std::endl;
         if (pcl::io::loadPCDFile<pcl::PointXYZ>(READ_PCD_FILE_NAME, *cloud_loaded) == -1) {
             PCL_ERROR("Could not read file\n");
@@ -881,19 +886,19 @@ int main(int argc, const char* argv[]) {
             << " points from " << READ_PCD_FILE_NAME << std::endl;
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
-    else {  // ½Ç½Ã°£ (Livox) ¸ğµå
-        try {            
+    else {  // ì‹¤ì‹œê°„ (Livox) ëª¨ë“œ
+        try {
             if (!LivoxLidarSdkInit(LIVOX_PATH.c_str())) {
                 throw std::runtime_error("Livox Init Failed");
             }
             SetLivoxLidarPointCloudCallBack(PointCloudCallback, &config);
-            SetLivoxLidarImuDataCallback(ImuDataCallback, &config);            
+            SetLivoxLidarImuDataCallback(ImuDataCallback, &config);
         }
         catch (const std::exception& ex) {
-			std::cerr << "[ERROR] Exception during Init: " << ex.what() << std::endl;
+            std::cerr << "[ERROR] Exception during Init: " << ex.what() << std::endl;
 
             LivoxLidarSdkUninit();
-			exit(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -907,7 +912,6 @@ int main(int argc, const char* argv[]) {
     subscriber.set(zmq::sockopt::subscribe, "LIS>MID360");
 
     // 4) Viewer
-    auto viewer = std::make_shared<pcl::visualization::PCLVisualizer>("Pantos_Volumetric_Viewer");
     viewer->addCoordinateSystem(1.0);
     viewer->setBackgroundColor(0.1, 0.1, 0.1);
     viewer->setCameraPosition(4.14367, 5.29453, -3.91817, 0.946026, -0.261667, 0.191218);
@@ -920,21 +924,22 @@ int main(int argc, const char* argv[]) {
     x_lengths.clear();
 
 
-    // V_start_process »óÅÂ ÅØ½ºÆ® ÃÊ±âÈ­
+    // V_start_process ìƒíƒœ í…ìŠ¤íŠ¸ ì´ˆê¸°í™”
     std::string initial_status = "V_start_process: " + std::string(V_start_process ? "True" : "False");
     viewer->addText(initial_status, 20, 350, 20, 1, 1, 1, "v_start_process_text");
 
 
-    // Àü¿ª º¯¼ö ¶Ç´Â ¸ŞÀÎ ·çÇÁ »ó´Ü¿¡ Ãß°¡
+    // ì „ì—­ ë³€ìˆ˜ ë˜ëŠ” ë©”ì¸ ë£¨í”„ ìƒë‹¨ì— ì¶”ê°€
     bool previous_V_start_process = V_start_process;
 
     static float last_yaw_mesurement = 0.0f;
-    static float cumulative_yaw = 0.0f;  
+    static float cumulative_yaw = 0.0f;
     static bool   stable_timer_running = false;
     static std::chrono::steady_clock::time_point stable_start_time;
 
+    bool firstCalibrationDone = false;    
 
-    // ¸ŞÀÎ ·çÇÁ
+    // ë©”ì¸ ë£¨í”„
     while (!viewer->wasStopped()) {
         try {
             viewer->spinOnce();
@@ -948,7 +953,7 @@ int main(int argc, const char* argv[]) {
                 }
             }
 
-            if (READ_PCD_FROM_FILE) { // ÆÄÀÏ¿¡¼­ PCD ·Îµå
+            if (READ_PCD_FROM_FILE) { // íŒŒì¼ì—ì„œ PCD ë¡œë“œ
                 std::lock_guard<std::mutex> lk(control_mutex);
                 if (reading_active) {
                     // chunk_size = 96 * iteration = 96 * 100 = 9,600
@@ -962,25 +967,16 @@ int main(int argc, const char* argv[]) {
                     }
                     cloud_merge->width = cloud_merge->points.size();
                     cloud_merge->height = 1;
-
-                    //if (count_pushed > 0) {
-                    //    V_start_process = true;
-                    //}
                 }
             }
 
-            if (heightCalibration_mode) { // Áö¸é Ä¶¸®ºê·¹ÀÌ¼Ç ¸ğµå                
+            if (heightCalibration_mode) { // ì§€ë©´ ìº˜ë¦¬ë¸Œë ˆì´ì…˜ ëª¨ë“œ                
                 {
                     std::lock_guard<std::mutex> lock(g_mutex);
                     cloud_ground->clear();
 
                     pcl::PointCloud<pcl::PointXYZ>::Ptr src_cloud;
-                    //if (READ_PCD_FROM_FILE) {
                     src_cloud = cloud_merge;
-                    //}
-                    //else {
-                    //    src_cloud = cloud_raw;
-                    //}
 
                     for (const auto& pt : src_cloud->points) {
                         if (pt.x >= ground_roi_box.x_min && pt.x <= ground_roi_box.x_max &&
@@ -996,9 +992,9 @@ int main(int argc, const char* argv[]) {
                     voxelizePointCloud(cloud_ground, 0.1f, 0.1f, 0.1f);
                 }
 
-                try { // Áö¸é ³ôÀÌ °è»ê
+                try { // ì§€ë©´ ë†’ì´ ê³„ì‚°
                     fixed_ground_height = std::abs(calculateGroundHeight(cloud_ground));
-                    ground_height_fixed = true; // Áö¸é ³ôÀÌ °íÁ¤(Åä±Û)
+                    ground_height_fixed = true; // ì§€ë©´ ë†’ì´ ê³ ì •(í† ê¸€)
 
                     std::cout << "[Calibration] Ground height fixed: " << fixed_ground_height << " m" << std::endl;
 
@@ -1018,7 +1014,7 @@ int main(int argc, const char* argv[]) {
                     viewer->addPointCloud<pcl::PointXYZ>(cloud_ground, color_handler, "roi_cloud");
                     viewer->setPointCloudRenderingProperties(
                         pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "roi_cloud"
-                    ); // »¡°­»öÀ¸·Î Áö¸é Æ÷ÀÎÆ® Ç¥½Ã
+                    ); // ë¹¨ê°•ìƒ‰ìœ¼ë¡œ ì§€ë©´ í¬ì¸íŠ¸ í‘œì‹œ
                 }
                 catch (const std::runtime_error& e) {
                     std::cerr << "[ERROR] " << e.what() << std::endl;
@@ -1030,7 +1026,7 @@ int main(int argc, const char* argv[]) {
             }
 
             // ------------------------------------------------------------------
-            // [ZMQ] ¸Ş½ÃÁö ¼ö½Å
+            // [ZMQ] ë©”ì‹œì§€ ìˆ˜ì‹ 
             // ------------------------------------------------------------------
             zmq::message_t msg;
             if (subscriber.recv(msg, zmq::recv_flags::dontwait)) {
@@ -1045,7 +1041,7 @@ int main(int argc, const char* argv[]) {
             }
 
             // ------------------------------------------------------------------
-            // ºÎÇÇ ÃøÁ¤ ¸ğµå¿Í ¾Æ´Ò ¶§, ÀÌÀü µ¥ÀÌÅÍ Á¦°Å
+            // ë¶€í”¼ ì¸¡ì • ëª¨ë“œì™€ ì•„ë‹ ë•Œ, ì´ì „ ë°ì´í„° ì œê±°
             // ------------------------------------------------------------------
             if (V_start_process != previous_V_start_process) {
                 if (previous_V_start_process) {
@@ -1059,13 +1055,13 @@ int main(int argc, const char* argv[]) {
                 }
 
 
-                // Æ÷ÀÎÆ® Å¬¶ó¿ìµå µ¥ÀÌÅÍ ÃÊ±âÈ­
-                //resetPointCloudData();
+                // í¬ì¸íŠ¸ í´ë¼ìš°ë“œ ë°ì´í„° ì´ˆê¸°í™”
+                resetPointCloudData();
 
-                // ÀÌÀü »óÅÂ ¾÷µ¥ÀÌÆ®
+                // ì´ì „ ìƒíƒœ ì—…ë°ì´íŠ¸
                 previous_V_start_process = V_start_process;
 
-                // Viewer¿¡ ÇöÀç »óÅÂ ÅØ½ºÆ® ¾÷µ¥ÀÌÆ®
+                // Viewerì— í˜„ì¬ ìƒíƒœ í…ìŠ¤íŠ¸ ì—…ë°ì´íŠ¸
                 std::string status_text = "V_start_process: " + std::string(V_start_process ? "True" : "False");
                 viewer->removeShape("v_start_process_text");
                 viewer->addText(status_text, 20, 350, 20, 1, 1, 1, "v_start_process_text");
@@ -1075,11 +1071,25 @@ int main(int argc, const char* argv[]) {
             }
 
 
+            Cali_cloud_ground->clear();
+            pcl::PointCloud<pcl::PointXYZ>::Ptr cali_cloud;
+            cali_cloud = cloud_merge;
 
+            for (const auto& pt : cali_cloud->points) {
+                if (pt.x >= ground_roi_box.x_min && pt.x <= ground_roi_box.x_max &&
+                    pt.y >= ground_roi_box.y_min - 0.35f && pt.y <= ground_roi_box.y_max &&
+                    pt.z >= ground_roi_box.z_min && pt.z <= ground_roi_box.z_max)
+                {
+                    Cali_cloud_ground->push_back(pt);
+                }
+            }
+            Cali_cloud_ground->width = static_cast<uint32_t>(Cali_cloud_ground->points.size());
+            Cali_cloud_ground->height = 1;
 
+            voxelizePointCloud(Cali_cloud_ground, 0.1f, 0.1f, 0.1f);                
 
             // ------------------------------------------------------------------
-            // 1Ãş ÇÈ¾÷
+            // 1ì¸µ í”½ì—…
 
             //std::lock_guard<std::mutex> lk(g_mutex);
 
@@ -1092,13 +1102,7 @@ int main(int argc, const char* argv[]) {
             float loadROI_z_max = 0.55f;
 
             pcl::PointCloud<pcl::PointXYZ>::Ptr Pickup_cloud;
-
-            //if (READ_PCD_FROM_FILE) {
             Pickup_cloud = cloud_merge;
-            //}
-            //else {
-            //    Pickup_cloud = cloud_raw;
-            //}
 
             for (const auto& point : Pickup_cloud->points) {
                 if (point.x >= loadROI_x1_min && point.x <= loadROI_x1_max &&
@@ -1137,6 +1141,48 @@ int main(int argc, const char* argv[]) {
                 viewer->removeShape("load_roi_box_1");
                 viewer->removeShape("pickup_text");
             }
+
+
+            // í”„ë¡œê·¸ë¨ ì¬ì‹œë™ ë° ì²˜ìŒ ì¼°ì„ ë•Œ,
+            // íŒŒë ˆíŠ¸ ë³´ì´ë©´ íŒŒë ˆíŠ¸ ì•ˆë³´ì´ê²Œ í•˜ë¼ê³  HBì•ˆë³´ëƒ„
+            if (!firstCalibrationDone) { // ì´ˆê¸°ì„¸íŒ… ì´ì „
+                if (!PickUp_1) { // ì§€ë©´ì´ ë³´ì´ëŠ” ìƒí™© (íŒŒë ˆíŠ¸ ì•ˆë³´ì„)
+                    float yaw_offset = estimateGroundYawOffset(cloud_ground);
+                    pcl::PointCloud<pcl::PointXYZ>::Ptr tmp(new pcl::PointCloud<pcl::PointXYZ>());
+                    applyYawCalibration(cloud_merge, tmp, yaw_offset);
+                    *cloud_merge = *tmp;
+
+                    fixed_ground_height = std::abs(calculateGroundHeight(cloud_ground));
+
+                    std::ostringstream YawCaliOss;
+                    YawCaliOss << "[INIT] Ground Cali: yaw_offset="
+                        << yaw_offset << "rad, height="
+                        << fixed_ground_height << "m";
+                    viewer->removeShape("YawCali_text");
+                    viewer->addText(YawCaliOss.str(), 250, 20, 14, 0.0, 1.0, 0.0, "YawCali_text");
+
+                    heartbeat_enabled.store(true); // HB ë³´ëƒ„
+                    firstCalibrationDone = true; // ì´ˆê¸°ì„¸íŒ… ì™„ë£Œ
+                }
+                else { // ì§€ë©´ì€ ì•ˆë³´ì´ê³  íŒŒë ˆíŠ¸ê°€ ë³´ì´ëŠ” ìƒí™©
+                    heartbeat_enabled.store(false); // HB ì•ˆë³´ëƒ„
+                    // firstCaliDoneì„ falseë¡œ ìœ ì§€í•˜ê¸° ë•Œë¬¸ì—
+                    // HBëŠ” ì•ˆë³´ë‚´ì„œ LISëŠ” í”„ë¡œê·¸ë¨ì´ êº¼ì§„ê±¸ë¡œ íŒë‹¨(ì¸¡ì •ë¶ˆê°€ ìƒí™©)
+                    // ì¬ì‹œë™ í•˜ë”ë¼ë„ íŒŒë ˆíŠ¸ë§Œ ë³´ì¸ë‹¤ë©´ ê³„ì† ë£¨í”„
+                    // ì§€ë©´ì´ ë³´ì´ê²Œ ë˜ë©´ firstCaliDone trueë˜ë©´ì„œ ë¹ ì ¸ë‚˜ì˜´
+                }
+            }
+
+            viewer->removeShape("firstCaliDone");
+            viewer->addText(
+                std::string("FirstCalibration Done: ") +
+                (firstCalibrationDone ? "Done" : "Undone\n(Clear the Palette!)"), 
+                20, 140, 14, 1.0, 1.0, 0.0, "firstCaliDone");
+
+            // ì´ˆê¸° ì„¸íŒ… = ì§€ë©´ì„ ë¼ì´ë‹¤ ì¢Œí‘œê³„ì™€ ìˆ˜í‰ìœ¼ë¡œ ë§ì¶¤
+            // ì´í›„ = ë³€í•´ì§€ëŠ” ê°ë„ê°’ë§Œí¼ íšŒì „ ì¡°ì ˆ, ê¸°ì¡´ ë¶€í”¼ì¸¡ì • ë¡œì§ìœ¼ë¡œ ìˆ˜í–‰
+
+
 
             float current_yaw_deg = imu_yaw_deg.load();
             float delta_yaw = current_yaw_deg - last_yaw_mesurement;
@@ -1194,7 +1240,7 @@ int main(int argc, const char* argv[]) {
 
 
             // -------------------------------------------------------------------------------------
-            // ºÎÇÇ Çü»ó ÃøÁ¤
+            // ë¶€í”¼ í˜•ìƒ ì¸¡ì •
             // -------------------------------------------------------------------------------------
             if (V_start_process && PickUp_1) {
 
@@ -1216,7 +1262,7 @@ int main(int argc, const char* argv[]) {
 
 
                         if (point.x < -fixed_ground_height + 2.18f && point.x >= -fixed_ground_height + 0.18f &&
-                            point.y >= y_min && point.y <= -0.15f && // ±âº»°ª -0.45f (¹é·¹½ºÆ® ¾Õ)
+                            point.y >= y_min && point.y <= -0.15f && // ê¸°ë³¸ê°’ -0.45f (ë°±ë ˆìŠ¤íŠ¸ ì•)
                             point.z >= z_min && point.z <= z_max) {
                             x_values.push_back(point.x);
                             cloud_filtered_volume->points.push_back(point);
@@ -1243,7 +1289,7 @@ int main(int argc, const char* argv[]) {
 
                     detectPlaneYZ(cloud_filtered_volume, viewer);
 
-                    // ºÎÇÇ ÃøÁ¤ °á°ú °è»ê
+                    // ë¶€í”¼ ì¸¡ì • ê²°ê³¼ ê³„ì‚°
                     if (x_lengths.size() == vector_size) {
                         result_height = calculateAverageX(x_lengths) * 1000;
                         x_lengths.clear();
@@ -1257,7 +1303,7 @@ int main(int argc, const char* argv[]) {
                         float ground_correction_mm = 0.0f;
                         ground_correction_mm = fixed_ground_height * 1000.0f;
                         result_height += ground_correction_mm;
-       
+
                         std::string json_result = "{"
                             "\"height\": " + std::to_string(result_height) + ", "
                             "\"width\": " + std::to_string(result_width) + ", "
@@ -1291,18 +1337,18 @@ int main(int argc, const char* argv[]) {
                         result_length = 0;
                     }
                 }
-                // PCD µ¥ÀÌÅÍ ÀúÀå (´Ü¼ø ´©Àû)
+                // PCD ë°ì´í„° ì €ì¥ (ë‹¨ìˆœ ëˆ„ì )
                 if (SAVE_PCD_FROM_FILE) {
                     *cloud_pcd += *cloud_merge;
                     std::cout << "[DEBUG] Accumulated " << cloud_pcd->size() << " points in cloud_pcd. \n";
                 }
 
-                // ÆÄÀÏ ¸ğµå¶ó¸é ´ÙÀ½ chunk ´ë±â À§ÇØ Ã³¸® Á¾·á
+                // íŒŒì¼ ëª¨ë“œë¼ë©´ ë‹¤ìŒ chunk ëŒ€ê¸° ìœ„í•´ ì²˜ë¦¬ ì¢…ë£Œ
                 if (READ_PCD_FROM_FILE) {
                     cloud_merge->clear();
                 }
 
-                // Å¬¶ó¿ìµå Ã³¸® ÈÄ Å¬¶ó¿ìµå_merge ÃÊ±âÈ­
+                // í´ë¼ìš°ë“œ ì²˜ë¦¬ í›„ í´ë¼ìš°ë“œ_merge ì´ˆê¸°í™”
                 //cloud_merge->clear();
             }
         }
@@ -1313,7 +1359,7 @@ int main(int argc, const char* argv[]) {
             saveToFile(error_message);
         }
     }
-    // Á¾·á ½Ã PCD ÀúÀå
+    // ì¢…ë£Œ ì‹œ PCD ì €ì¥
     if (SAVE_PCD_FROM_FILE && !cloud_pcd->empty()) {
         std::cout << "[INFO] Saving point cloud... " << std::endl;
         if (pcl::io::savePCDFileBinary(SAVE_PCD_FILE_NAME, *cloud_pcd) == 1) {
@@ -1327,6 +1373,6 @@ int main(int argc, const char* argv[]) {
 
     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>[STOP DETECTION]>>>>>>>>>>>>>>>>>>>>>>>>\n";
     LivoxLidarSdkUninit();
-	curl_global_cleanup(); // curl Àü¿ª Á¤¸® (ÇÁ·Î±×·¥ Á¾·á ½Ã ÇÑ¹ø È£Ãâ)
+    curl_global_cleanup(); // curl ì „ì—­ ì •ë¦¬ (í”„ë¡œê·¸ë¨ ì¢…ë£Œ ì‹œ í•œë²ˆ í˜¸ì¶œ)
     return 0;
 }

@@ -89,9 +89,8 @@ struct CaliROIBox {
 };
 CaliROIBox ground_roi_box = {
     -2.5f, -1.8f,
-    -0.65f, -0.3f,
+    -0.65f, -0.35f,
     0.25f, 0.55f
-    //0.2f, 0.6f // 포크 사이
 };
 
 
@@ -132,16 +131,10 @@ bool V_start_process = false;
 bool reading_active = true; // 초기 상태는 읽기 활성화
 bool is_paused = false; // 초기 상태는 일시정지 아님
 
-bool pallet_height_fixed = false;
-float fixed_pallet_height = 0.0f;
-
 bool heightCalibration_mode = false; // 높이 캘리브레이션 
 bool ground_height_fixed = false;
 bool showGroundROI = false;    // 지면 캘리브레이션용 ROI 박스를 표시할지 여부
 
-bool inFrontofRack = false;
-
-bool PickUp = false;
 bool PickUp_1 = false;
 
 bool READ_PCD_FROM_FILE = false;
@@ -161,21 +154,13 @@ std::vector<float> x_lengths(vector_size); // 고정 크기로 초기화 시킴
 
 std::vector<std::string> volume_line_ids;
 
-float angle_degrees = 0;
 int x_index = 0;
 int point_index = 0;
-int pallet_line_index = 0;
 
 float max_x_value = 0;
 float result_length = 0;
 float result_height = 0;
 float result_width = 0;
-
-static std::atomic<float> imu_roll_deg{ 0.0f };
-static std::atomic<float> imu_pitch_deg{ 0.0f };
-static std::atomic<long long> last_imu_time_ns{ 0 };
-static std::atomic<float>      yaw_rad_accum{ 0.0f };
-static std::atomic<float>      imu_yaw_deg{ 0.0f };
 
 std::ostringstream oss;
 
@@ -337,7 +322,7 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
 
     auto nowMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
-	lastLidarTimeMillis.store(nowMillis);
+    lastLidarTimeMillis.store(nowMillis);
 
     const WATAConfig* config = static_cast<const WATAConfig*>(client_data);
     if (data->data_type == kLivoxLidarCartesianCoordinateHighData) {
@@ -605,34 +590,34 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::visualization
     catch (const std::exception& e) {
         std::cerr << "[detectPlaneYZ ERROR] Exception: " << e.what() << std::endl;
     }
-      if (max_length_x > 0) {
-      std::string line_id_x = "longest_line_x";
+    if (max_length_x > 0) {
+        std::string line_id_x = "longest_line_x";
 
-      viewer->removeShape(line_id_x);
-      viewer->addLine(p1_x, p2_x, 1.0, 0.0, 0.0, line_id_x);
+        viewer->removeShape(line_id_x);
+        viewer->addLine(p1_x, p2_x, 1.0, 0.0, 0.0, line_id_x);
 
-      bool is_duplicate = false;
-      for (size_t i = 0; i < x_lengths.size(); ++i) {
-          if (x_lengths[i] == p2_x.x) {
-              is_duplicate = true;
-              break;
-          }
-      }
+        bool is_duplicate = false;
+        for (size_t i = 0; i < x_lengths.size(); ++i) {
+            if (x_lengths[i] == p2_x.x) {
+                is_duplicate = true;
+                break;
+            }
+        }
 
-      if (!is_duplicate) {
-          std::cout << "Height" + std::to_string(x_index) + " : " + std::to_string(static_cast<int>(p2_x.x * 1000)) << std::endl;
-          saveToFile("Height" + std::to_string(x_index) + " : " + std::to_string(static_cast<int>(p2_x.x * 1000)));
-          if (x_lengths.size() < vector_size) {
-              x_lengths.push_back(p2_x.x);
-          }
-          else {
-              x_lengths[x_index] = p2_x.x;
-          }
+        if (!is_duplicate) {
+            std::cout << "Height" + std::to_string(x_index) + " : " + std::to_string(static_cast<int>(p2_x.x * 1000)) << std::endl;
+            saveToFile("Height" + std::to_string(x_index) + " : " + std::to_string(static_cast<int>(p2_x.x * 1000)));
+            if (x_lengths.size() < vector_size) {
+                x_lengths.push_back(p2_x.x);
+            }
+            else {
+                x_lengths[x_index] = p2_x.x;
+            }
 
-          x_index = (x_index + 1) % vector_size;
+            x_index = (x_index + 1) % vector_size;
 
-      }
-   }
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -683,12 +668,12 @@ void calcMaxX(std::vector<float>& x_values, float& max_x_value)
 }
 
 void sendHeartbeatSignal() {
-    CURL *curl = curl_easy_init();
+    CURL* curl = curl_easy_init();
     if (curl) {
         // 가디언에서 할당된 포인트
-		const char* url = "http://localhost:8081/heartbeat";
+        const char* url = "http://localhost:8081/heartbeat";
         curl_easy_setopt(curl, CURLOPT_URL, url);
-		curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
 
         // 전송할 JSON 문자열
         const char* postData = "{\"status\":\"alive\"}";
@@ -698,133 +683,37 @@ void sendHeartbeatSignal() {
 
         CURLcode res = curl_easy_perform(curl);
         if (res != CURLE_OK) {
-			std::cerr << "[ERROR] Hearbeat 전송 실패: " << curl_easy_strerror(res) << std::endl;
+            std::cerr << "[ERROR] Hearbeat 전송 실패: " << curl_easy_strerror(res) << std::endl;
         }
-		curl_easy_cleanup(curl);
+        curl_easy_cleanup(curl);
     }
 }
 
-static std::atomic<bool> heartbeat_enabled{ true };
 
 void heartbeatThreadFunction() {
     while (heartbeatRunning.load()) {
-        if (heartbeat_enabled.load()) {
 
-            auto nowMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch()).count();
-            long long lastLidarTime = lastLidarTimeMillis.load();
-            long long elapsed = nowMillis - lastLidarTime;
+        auto nowMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        long long lastLidarTime = lastLidarTimeMillis.load();
+        long long elapsed = nowMillis - lastLidarTime;
 
-            if (elapsed > 5000) { // 5초 이상 경과하면
-                std::cerr << "[ERROR] LiDAR 데이터 수신 중단됨. 프로그램 종료." << std::endl;
-                heartbeatRunning.store(false);
-                break;
-            }
-            sendHeartbeatSignal(); // heartbeat 신호 전송 함수 전송
+        if (elapsed > 5000) { // 5초 이상 경과하면
+            std::cerr << "[ERROR] LiDAR 데이터 수신 중단됨. 프로그램 종료." << std::endl;
+            heartbeatRunning.store(false);
+            break;
         }
+        sendHeartbeatSignal(); // heartbeat 신호 전송 함수 전송
+        
         std::this_thread::sleep_for(std::chrono::seconds(1)); // 1초마다 신호 전송
-
     }
 }
-
-// 바이어스 계산용 변수
-static bool   bias_computed = false;
-static int    bias_sample_cnt = 0;
-static float  gyro_z_bias_sum = 0.0f;
-static float  gyro_z_bias = 0.0f;
-
-void ImuDataCallback(uint32_t handle,
-    uint8_t  dev_type,
-    LivoxLidarEthernetPacket* packet,
-    void* client_data) {
-    using namespace std::chrono;
-
-    // 1) bias 계산 단계: 첫 200샘플(약 1초) 동안 gyro_z 평균값을 bias로 사용
-    auto* imu_arr = reinterpret_cast<LivoxLidarImuRawPoint*>(packet->data);
-    float gz = imu_arr[packet->dot_num - 1].gyro_z;
-
-    if (!bias_computed) {
-        gyro_z_bias_sum += gz;
-        if (++bias_sample_cnt >= 200) {
-            gyro_z_bias = gyro_z_bias_sum / bias_sample_cnt;
-            bias_computed = true;
-        }
-        return;  // bias 취득 전에는 적분 안 함
-    }
-
-    // 2) 시간 간격 계산 (nanosecond 단위)
-    auto now_ns = duration_cast<nanoseconds>(
-        steady_clock::now().time_since_epoch()
-    ).count();
-    long long last_ns = last_imu_time_ns.load();
-    float dt = 0.0f;
-    if (last_ns > 0) {
-        dt = (now_ns - last_ns) * 1e-9f;  // [s]
-    }
-    last_imu_time_ns.store(now_ns);
-
-    // 3) bias 보정 및 노이즈 임계치
-    float gz_corr = gz - gyro_z_bias;
-    if (std::abs(gz_corr) < 0.005f)  // 0.005 rad/s 이하는 무시
-        gz_corr = 0.0f;
-
-    // 4) 적분 → yaw 누적
-    float delta = gz_corr * dt;      // [rad]
-    float accum = yaw_rad_accum.load() + delta;
-    yaw_rad_accum.store(accum);
-    imu_yaw_deg.store(accum * 180.0f / M_PI);  // [deg]
-}
-
-float estimateGroundYawOffset(
-    pcl::PointCloud<pcl::PointXYZ>::Ptr const& cloud_ground)
-{
-    // 1. RANSAC 평면 피팅
-    pcl::ModelCoefficients::Ptr coeff(new pcl::ModelCoefficients);
-    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
-    pcl::SACSegmentation<pcl::PointXYZ> seg;
-    seg.setModelType(pcl::SACMODEL_PLANE);
-    seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(0.02f);         // 2cm 이내를 평면으로 간주
-    seg.setInputCloud(cloud_ground);
-    seg.segment(*inliers, *coeff);
-
-    if (inliers->indices.empty()) {
-        // 평면 못 찾았을 때는 보정 안함
-        return 0.0f;
-    }
-
-    // 2. 평면 법선 벡터 (a,b,c)
-    Eigen::Vector3f normal(coeff->values[0],
-        coeff->values[1],
-        coeff->values[2]);
-    normal.normalize();
-
-    // 3. x축(1,0,0) 기준으로 z축 회전량 (yaw 오프셋)
-    //    atan2(b, a) 을 센서에 역으로 적용해야 지면이 y-z 평면과 평행해짐
-    float yaw_offset = std::atan2(normal.y(), normal.x());
-    return yaw_offset;
-}
-
-// 2) yaw 보정량 만큼 포인트클라우드를 역회전(transform) 시킴
-//    src: 원본 클라우드, dst: 변환 후 클라우드, yaw_offset: 위 함수에서 얻은 라디안
-void applyYawCalibration(
-    pcl::PointCloud<pcl::PointXYZ>::Ptr const& src,
-    pcl::PointCloud<pcl::PointXYZ>::Ptr& dst,
-    float yaw_offset)
-{
-    Eigen::Affine3f tf = Eigen::Affine3f::Identity();
-    // 지면 법선->x축 보정을 위해 ?yaw_offset 만큼 z축 회전
-    tf.rotate(Eigen::AngleAxisf(-yaw_offset, Eigen::Vector3f::UnitZ()));
-    dst.reset(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::transformPointCloud(*src, *dst, tf);
-}
-
 
 // ----------------------------------------------------------------------------
 // Main
 // ----------------------------------------------------------------------------
 int main(int argc, const char* argv[]) {
-	// 시스템 오류 대화상자 표시를 막음 (Windows 전용)
+    // 시스템 오류 대화상자 표시를 막음 (Windows 전용)
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
 
@@ -835,14 +724,14 @@ int main(int argc, const char* argv[]) {
     std::cout << "Current working directory: "
         << std::filesystem::current_path() << std::endl;
 
-	curl_global_init(CURL_GLOBAL_ALL); // curl 전역 초기화 (프로그램 시작 시 한번 호출)
+    curl_global_init(CURL_GLOBAL_ALL); // curl 전역 초기화 (프로그램 시작 시 한번 호출)
 
     // 프로그램 시작 시, 마지막 LiDAR 수신시간 초기화
     lastLidarTimeMillis.store(std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count());
 
     std::thread heartbeatThread(heartbeatThreadFunction);
-	heartbeatThread.detach(); // 스레드를 분리하여 독립적으로 실행
+    heartbeatThread.detach(); // 스레드를 분리하여 독립적으로 실행
 
     std::vector<float> ground_samples;
 
@@ -856,7 +745,7 @@ int main(int argc, const char* argv[]) {
     const std::string READ_PCD_FILE_NAME = config.read_file_name;
     const std::string SAVE_PCD_FILE_NAME = config.save_file_name;
 
-    float fixed_ground_height = 2.026;
+    float fixed_ground_height = config.height_threshold * 0.001f;
 
     const int iteration = config.iteration;
 
@@ -882,18 +771,17 @@ int main(int argc, const char* argv[]) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
     else {  // 실시간 (Livox) 모드
-        try {            
+        try {
             if (!LivoxLidarSdkInit(LIVOX_PATH.c_str())) {
                 throw std::runtime_error("Livox Init Failed");
             }
             SetLivoxLidarPointCloudCallBack(PointCloudCallback, &config);
-            SetLivoxLidarImuDataCallback(ImuDataCallback, &config);            
         }
         catch (const std::exception& ex) {
-			std::cerr << "[ERROR] Exception during Init: " << ex.what() << std::endl;
+            std::cerr << "[ERROR] Exception during Init: " << ex.what() << std::endl;
 
             LivoxLidarSdkUninit();
-			exit(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -908,17 +796,17 @@ int main(int argc, const char* argv[]) {
 
     // 4) Viewer
     auto viewer = std::make_shared<pcl::visualization::PCLVisualizer>("Pantos_Volumetric_Viewer");
+
     viewer->addCoordinateSystem(1.0);
     viewer->setBackgroundColor(0.1, 0.1, 0.1);
     viewer->setCameraPosition(4.14367, 5.29453, -3.91817, 0.946026, -0.261667, 0.191218);
 
-    int previous_pallet_index = 0;
+    viewer->removeShape("HB_status");
+    viewer->addText(std::string("HeartBeat: ") + (heartbeatRunning.load() ? "O" : "X"), 20, 320, 14, 1.0, 1.0, 0.0, "HB_status");
+
 
     viewer->registerKeyboardCallback(keyboardEventOccurred, (void*)viewer.get());
-
-
     x_lengths.clear();
-
 
     // V_start_process 상태 텍스트 초기화
     std::string initial_status = "V_start_process: " + std::string(V_start_process ? "True" : "False");
@@ -927,12 +815,6 @@ int main(int argc, const char* argv[]) {
 
     // 전역 변수 또는 메인 루프 상단에 추가
     bool previous_V_start_process = V_start_process;
-
-    static float last_yaw_mesurement = 0.0f;
-    static float cumulative_yaw = 0.0f;  
-    static bool   stable_timer_running = false;
-    static std::chrono::steady_clock::time_point stable_start_time;
-
 
     // 메인 루프
     while (!viewer->wasStopped()) {
@@ -962,10 +844,6 @@ int main(int argc, const char* argv[]) {
                     }
                     cloud_merge->width = cloud_merge->points.size();
                     cloud_merge->height = 1;
-
-                    //if (count_pushed > 0) {
-                    //    V_start_process = true;
-                    //}
                 }
             }
 
@@ -975,12 +853,7 @@ int main(int argc, const char* argv[]) {
                     cloud_ground->clear();
 
                     pcl::PointCloud<pcl::PointXYZ>::Ptr src_cloud;
-                    //if (READ_PCD_FROM_FILE) {
                     src_cloud = cloud_merge;
-                    //}
-                    //else {
-                    //    src_cloud = cloud_raw;
-                    //}
 
                     for (const auto& pt : src_cloud->points) {
                         if (pt.x >= ground_roi_box.x_min && pt.x <= ground_roi_box.x_max &&
@@ -1060,7 +933,7 @@ int main(int argc, const char* argv[]) {
 
 
                 // 포인트 클라우드 데이터 초기화
-                //resetPointCloudData();
+                resetPointCloudData();
 
                 // 이전 상태 업데이트
                 previous_V_start_process = V_start_process;
@@ -1076,8 +949,6 @@ int main(int argc, const char* argv[]) {
 
 
 
-
-
             // ------------------------------------------------------------------
             // 1층 픽업
 
@@ -1087,18 +958,12 @@ int main(int argc, const char* argv[]) {
             float loadROI_x1_min = -fixed_ground_height + 0.05f;
             float loadROI_x1_max = -fixed_ground_height + 2.0f;
             float loadROI_y_min = -1.1f;
-            float loadROI_y_max = -0.18f;
+            float loadROI_y_max = -0.35f;
             float loadROI_z_min = 0.25f;
             float loadROI_z_max = 0.55f;
 
             pcl::PointCloud<pcl::PointXYZ>::Ptr Pickup_cloud;
-
-            //if (READ_PCD_FROM_FILE) {
             Pickup_cloud = cloud_merge;
-            //}
-            //else {
-            //    Pickup_cloud = cloud_raw;
-            //}
 
             for (const auto& point : Pickup_cloud->points) {
                 if (point.x >= loadROI_x1_min && point.x <= loadROI_x1_max &&
@@ -1110,7 +975,6 @@ int main(int argc, const char* argv[]) {
 
             if (count_load_roi_1 >= 10 && count_load_roi_1 <= 5000) {
                 PickUp_1 = true;
-                heightCalibration_mode = false;
 
                 std::ostringstream pickOSS;
                 pickOSS << "1st PickUp!!\n" << "pts: " << count_load_roi_1;
@@ -1133,58 +997,10 @@ int main(int argc, const char* argv[]) {
             }
             else
             {
-                heightCalibration_mode = true;
                 viewer->removeShape("load_roi_box_1");
                 viewer->removeShape("pickup_text");
             }
 
-            float current_yaw_deg = imu_yaw_deg.load();
-            float delta_yaw = current_yaw_deg - last_yaw_mesurement;
-
-            if (std::abs(delta_yaw) > 0.1f) {
-                cumulative_yaw += delta_yaw;
-                last_yaw_mesurement = current_yaw_deg;
-                stable_timer_running = false;
-                heightCalibration_mode = false;
-            }
-            else {
-                if (!stable_timer_running) {
-                    stable_timer_running = true;
-                    stable_start_time = std::chrono::steady_clock::now();
-                }
-                else {
-                    auto elapsed = std::chrono::duration<float>(
-                        std::chrono::steady_clock::now() - stable_start_time
-                    ).count();
-
-                    if (elapsed >= 1.0f) {
-                        last_yaw_mesurement = 0.0f;
-                        imu_yaw_deg.store(0.0f);
-                        yaw_rad_accum.store(0.0f);
-                        stable_timer_running = false;
-                    }
-                }
-            }
-            float cum_rad = cumulative_yaw * M_PI / 180.0f;
-            Eigen::Affine3f tf = Eigen::Affine3f::Identity();
-            tf.rotate(Eigen::AngleAxisf(cum_rad, Eigen::Vector3f::UnitZ()));
-
-            pcl::PointCloud<pcl::PointXYZ>::Ptr aligned(new pcl::PointCloud<pcl::PointXYZ>());
-
-            pcl::transformPointCloud(*cloud_merge, *aligned, tf);
-
-
-            viewer->removePointCloud("raw");
-            pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> rawHandler(aligned, 255, 255, 255);
-            viewer->addPointCloud(aligned, rawHandler, "raw");
-            viewer->setPointCloudRenderingProperties(
-                pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "raw");
-
-            viewer->removeShape("imu_yaw_text");
-            std::ostringstream oss;
-            oss << "Yaw: " << std::fixed << std::setprecision(1) << current_yaw_deg << " deg\n"
-                << "Delta Yaw: " << std::fixed << std::setprecision(1) << delta_yaw << " deg";
-            viewer->addText(oss.str(), 20, 70, 15, 1, 1, 0, "imu_yaw_text");
 
             viewer->removeShape("cur_height");
             std::ostringstream curHeightOss;
@@ -1193,13 +1009,14 @@ int main(int argc, const char* argv[]) {
             viewer->addText(curHeightOss.str(), 300, 400, 14, 1.0, 1.0, 1.0, "cur_height");
 
 
+
+
+            std::lock_guard<std::mutex> lk(g_mutex);
+
             // -------------------------------------------------------------------------------------
             // 부피 형상 측정
             // -------------------------------------------------------------------------------------
             if (V_start_process && PickUp_1) {
-
-                std::lock_guard<std::mutex> lk(g_mutex);
-
 
                 if (cloud_merge && !cloud_merge->empty()) {
 
@@ -1216,7 +1033,7 @@ int main(int argc, const char* argv[]) {
 
 
                         if (point.x < -fixed_ground_height + 2.18f && point.x >= -fixed_ground_height + 0.18f &&
-                            point.y >= y_min && point.y <= -0.15f && // 기본값 -0.45f (백레스트 앞)
+                            point.y >= y_min && point.y <= -0.45f && // 기본값 -0.45f (백레스트 앞)
                             point.z >= z_min && point.z <= z_max) {
                             x_values.push_back(point.x);
                             cloud_filtered_volume->points.push_back(point);
@@ -1257,7 +1074,7 @@ int main(int argc, const char* argv[]) {
                         float ground_correction_mm = 0.0f;
                         ground_correction_mm = fixed_ground_height * 1000.0f;
                         result_height += ground_correction_mm;
-       
+
                         std::string json_result = "{"
                             "\"height\": " + std::to_string(result_height) + ", "
                             "\"width\": " + std::to_string(result_width) + ", "
@@ -1327,6 +1144,6 @@ int main(int argc, const char* argv[]) {
 
     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>[STOP DETECTION]>>>>>>>>>>>>>>>>>>>>>>>>\n";
     LivoxLidarSdkUninit();
-	curl_global_cleanup(); // curl 전역 정리 (프로그램 종료 시 한번 호출)
+    curl_global_cleanup(); // curl 전역 정리 (프로그램 종료 시 한번 호출)
     return 0;
 }

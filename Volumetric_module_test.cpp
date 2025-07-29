@@ -1,4 +1,4 @@
-//
+ï»¿//
 // The MIT License (MIT)
 //
 
@@ -14,20 +14,23 @@
 
 #ifdef _WIN32
 #include <winsock2.h>
+#include <Ws2tcpip.h>
 #else
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #endif
 
 #include "json.hpp" 
-#include <regex>
 
+#include <regex>
 #include <sstream>
 #include <filesystem>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <thread>
+#include <limits>
 #include <chrono>
 #include <iostream>
 #include <memory>
@@ -35,11 +38,11 @@
 #include <queue>
 #include <fstream>
 #include <algorithm>
+#include <cmath>
 
 #include <curl/curl.h>
 
-#include <omp.h> // º´·ÄÃ³¸®
-#include <future>
+#include <omp.h> // ë³‘ë ¬ì²˜ë¦¬
 #include <atomic>
 
 // PCL
@@ -51,38 +54,35 @@
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/search/kdtree.h>
 #include <pcl/common/common.h>
+#include <pcl/common/transforms.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/segmentation/region_growing.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/features/moment_of_inertia_estimation.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/filters/radius_outlier_removal.h>
+#include <pcl/common/distances.h>
+
+#include <vtkOutputWindow.h>
+#include <vtkObject.h>
 
 #include <unordered_map>
 #include <Eigen/Dense>
 
-#include <vtkSmartPointer.h>
-#include <vtkSliderWidget.h>
-#include <vtkSliderRepresentation2D.h>
-#include <vtkButtonWidget.h>
-#include <vtkTexturedButtonRepresentation2D.h>
-#include <vtkPNGReader.h>
-#include <vtkCommand.h>
-#include <vtkImageData.h>
-#include <vtkTextActor.h>
-#include <vtkTextProperty.h>
-#include <vtkTextWidget.h>
-#include <vtkTextRepresentation.h>
-#include <vtkOutputWindow.h>
-#include <vtkObject.h>
-#include <vtkImageSlice.h>
-#include <vtkImageSliceMapper.h>
 
+
+#include <opencv2/imgproc.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>   // imwrite
+#include <opencv2/highgui.hpp>
 
 #include "resource_dev.h"
 
-
-
+#include "config.hpp"
+#include "vtk_ui.hpp"
 
 
 
@@ -91,7 +91,7 @@
 
 
 // ----------------------------------------------------------------------------
-// JSON ±¸Á¶Ã¼
+// JSON êµ¬ì¡°ì²´
 // ----------------------------------------------------------------------------
 struct CaliROIBox {
     float x_min, x_max;
@@ -102,108 +102,47 @@ CaliROIBox ground_roi_box = {
     -3.5f, -1.0f,
     -0.85f, -0.35f,
     0.2f, 0.5f
-    //0.2f, 0.6f // Æ÷Å© »çÀÌ
+    //0.2f, 0.6f // í¬í¬ ì‚¬ì´
 };
 
 
 
 
-struct WATAConfig {
-    int iteration = 0;
 
-    int mean_k = 0;
-    float threshold = 0;
-	float reach_height = 0.0f;
-	float counterbalance_height = 0.0f;
-
-    bool flag_detect_plane_yz = false;
-    bool flag_load_roi = false;
-    bool flag_raw_cloud = false;
-    bool flag_intensity = false;
-    bool flag_dual_emit = false;
-    bool flag_reach_off_counter = false;
-    bool flag_replay = false;
-    bool flag_heart_beat = true;
-
-    bool read_file = false;
-    bool save_file = false;
-    std::string read_file_name = "";
-    std::string save_file_name = "";
-};
-
-
-// ----------------------------------------------------------------------------
-// VTK Äİ¹é Å¬·¡½ºµé
-// ----------------------------------------------------------------------------
-struct SliderCallback : public vtkCommand {
-    static SliderCallback* New() { return new SliderCallback; }
-
-    WATAConfig* iteration_ptr = nullptr;
-	WATAConfig* meank_ptr = nullptr;
-	WATAConfig* threshold_ptr = nullptr;
-
-    void Execute(vtkObject* caller, unsigned long, void*) override {
-        auto slider = static_cast<vtkSliderWidget*>(caller);
-        double v = static_cast<vtkSliderRepresentation*>(slider->GetRepresentation())->GetValue();
-        if (iteration_ptr) {
-            iteration_ptr->iteration = static_cast<int>(v);
-            std::cout << "[SLIDER] iteration = " << iteration_ptr->iteration << std::endl;
-        }
-        if (meank_ptr) {
-			meank_ptr->mean_k = static_cast<int>(v);
-			std::cout << "[SLIDER] mean_k = " << meank_ptr->mean_k << std::endl;
-        }
-        if (threshold_ptr) {
-            threshold_ptr->threshold = static_cast<float>(v);
-            std::cout << "[SLIDER] threshold = " << threshold_ptr->threshold << std::endl;
-        }
-
-    }    
-};
-
-struct ButtonCallback : public vtkCommand {
-    static ButtonCallback* New() { return new ButtonCallback; }
-
-	bool* toggleFlag = nullptr;
-    std::string name;
-
-    void Execute(vtkObject* caller, unsigned long, void*) override {
-        if (toggleFlag) {
-			*toggleFlag = !*toggleFlag;
-			std::cout << "[BUTTON] " << name << " is now " << (*toggleFlag ? "ON" : "OFF") << std::endl;
-        }
-    }      
-};
-
-
-
-
+// í˜¸ìŠ¤íŠ¸(PC) IP ê°€ì ¸ì˜¤ëŠ” ìœ í‹¸
+std::string GetHostIP() {
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) == -1) return "";
+    struct hostent* he = gethostbyname(hostname);
+    if (!he || he->h_addr_list[0] == nullptr) return "";
+    return inet_ntoa(*(struct in_addr*)he->h_addr_list[0]);
+}
 
 
 
 
 // ----------------------------------------------------------------------------
-// Àü¿ª
+// ì „ì—­
 // ----------------------------------------------------------------------------
 std::mutex control_mutex;
 std::mutex g_mutex;
 std::atomic<long long> lastLidarTimeMillis(0);
 std::atomic<bool> heartbeatRunning(true);
-static std::atomic<bool> rebootRequested{ false };
+std::atomic<bool> vtk_ui::rebootRequested{ false };
 
 
 bool V_start_process = false;
-bool reading_active = true; // ÃÊ±â »óÅÂ´Â ÀĞ±â È°¼ºÈ­
-bool is_paused = false; // ÃÊ±â »óÅÂ´Â ÀÏ½ÃÁ¤Áö ¾Æ´Ô
+bool reading_active = true; // ì´ˆê¸° ìƒíƒœëŠ” ì½ê¸° í™œì„±í™”
+bool is_paused = false; // ì´ˆê¸° ìƒíƒœëŠ” ì¼ì‹œì •ì§€ ì•„ë‹˜
 float fixed_ground_height = 0.0f;
 
 bool pallet_height_fixed = false;
 float fixed_pallet_height = 0.0f;
 
-bool heightCalibration_mode = false; // ³ôÀÌ Ä¶¸®ºê·¹ÀÌ¼Ç 
+bool heightCalibration_mode = false; // ë†’ì´ ìº˜ë¦¬ë¸Œë ˆì´ì…˜ 
 
 bool ground_height_fixed = false;
-bool showGroundROI = false;    // Áö¸é Ä¶¸®ºê·¹ÀÌ¼Ç¿ë ROI ¹Ú½º¸¦ Ç¥½ÃÇÒÁö ¿©ºÎ
+bool showGroundROI = false;    // ì§€ë©´ ìº˜ë¦¬ë¸Œë ˆì´ì…˜ìš© ROI ë°•ìŠ¤ë¥¼ í‘œì‹œí• ì§€ ì—¬ë¶€
 
 bool inFrontofRack = false;
 
@@ -225,10 +164,8 @@ std::vector<float> x_lengths(vector_size);
 std::vector<float> y_lengths(vector_size);
 std::vector<float> z_lengths(vector_size);
 
-std::vector<std::string> cluster_box_ids;
 std::vector<std::string> volume_line_ids;
-std::vector<std::string> pallet_line_ids;
-std::vector<std::string> pallet_height_text_ids;
+
 
 float angle_degrees = 0;
 int x_index = 0;
@@ -242,118 +179,37 @@ float result_length = 0;
 float result_height = 0;
 float result_width = 0;
 
-FovCfg fov_cfg0 = {    // yaw_start, yaw_stop, pitch_start(¾È¾¸), pitch_stop(¾È¾¸)
-  0.0f,     // yaw_start = 0¡Æ
-  360.0f,   // yaw_stop  = 360¡Æ
+FovCfg fov_cfg0 = {    // yaw_start, yaw_stop, pitch_start(ì•ˆì”€), pitch_stop(ì•ˆì”€)
+  0.0f,     // yaw_start = 0Â°
+  360.0f,   // yaw_stop  = 360Â°
   -9.0f,52.0f
 };
-//FovCfg fov_cfg0 = {    // yaw_start(¾È¾¸), yaw_stop(¾È¾¸), pitch_start, pitch_stop
+//FovCfg fov_cfg0 = {    // yaw_start(ì•ˆì”€), yaw_stop(ì•ˆì”€), pitch_start, pitch_stop
 //  0,0,
-//  -2,    // pitch_start = -2¡Æ
-//  52     // pitch_stop  = +52¡Æ
+//  -2,    // pitch_start = -2Â°
+//  52     // pitch_stop  = +52Â°
 //};
 
 
 std::atomic<uint32_t> g_lidar_handle{ 0 };
-std::atomic<bool>   g_dual_emit_set{ false };
 
 
 bool enableDetectPlaneYZ = false;
 bool enableLoadROI = false;
 bool enableRAWcloud = false;
 bool enableINTENSITY = false;
-bool enableDualEmit = false;
+bool enableHeightOnly = false;
 bool onReachoffCounter = false;
 bool enableReplay = false;
 bool enableHeartBeat = true;
+bool enableVolume = false;
+bool enableTuning = false;
+
+
 
 
 // ----------------------------------------------------------------------------
-// JSON ¼³Á¤ ÀĞ±â
-// ----------------------------------------------------------------------------
-using json = nlohmann::json;
-
-std::string removeComments(const std::string& jsonString) {
-    std::regex singleLineCommentRegex("//.*?$");
-    std::regex multiLineCommentRegex("/\\*.*?\\*/");
-
-    // ´ÜÀÏ ¹× ´ÙÁß Çà ÁÖ¼® Á¦°Å
-    std::string withoutComments = std::regex_replace(jsonString, multiLineCommentRegex, "");
-    withoutComments = std::regex_replace(withoutComments, singleLineCommentRegex, "", std::regex_constants::format_default);
-
-    // °¢ ÁÙÀ» Æ®¸²ÇÏ¿© Á¤¸®
-    std::stringstream ss(withoutComments);
-    std::string cleanedJson, line;
-    while (std::getline(ss, line)) {
-        line.erase(std::remove_if(line.begin(), line.end(), ::isspace), line.end());
-        if (!line.empty()) {
-            cleanedJson += line + "\n";
-        }
-    }
-    return cleanedJson;
-}
-
-
-WATAConfig readConfigFromJson(const std::string& filePath) {
-    WATAConfig cfg;
-
-    std::ifstream file(filePath);
-    if (!file.is_open()) {
-        throw std::runtime_error("Could not open file: " + filePath);
-    }
-
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    file.close();
-
-    // ÁÖ¼® Á¦°Å
-    std::string jsonWithoutComments = removeComments(content);
-
-    json j;
-    try {
-        j = json::parse(jsonWithoutComments);
-    }
-    catch (const nlohmann::json::parse_error& e) {
-        std::cerr << "JSON parse error at byte " << e.byte << ": " << e.what() << std::endl;
-        throw std::runtime_error("JSON parse error: " + std::string(e.what()));
-    }
-
-    cfg.iteration = j.value("iteration", 0);
-
-    if (j.contains("flags")) {
-        const auto& f = j["flags"];
-        cfg.flag_detect_plane_yz = f.value("detectPlaneYZ", cfg.flag_detect_plane_yz);
-        cfg.flag_load_roi = f.value("loadROI", cfg.flag_load_roi);
-        cfg.flag_raw_cloud = f.value("rawCloud", cfg.flag_raw_cloud);
-        cfg.flag_intensity = f.value("intensity", cfg.flag_intensity);
-        cfg.flag_dual_emit = f.value("dualEmit", cfg.flag_dual_emit);
-        cfg.flag_reach_off_counter = f.value("reachOffCounter", cfg.flag_reach_off_counter);
-        cfg.flag_replay = f.value("replay", cfg.flag_replay);
-        cfg.flag_heart_beat = f.value("heartBeat", cfg.flag_heart_beat);
-    }
-
-
-    if (j.contains("file")) {
-        const auto& fileConfig = j["file"];
-        cfg.read_file = fileConfig.value("read_file", false);
-        cfg.save_file = fileConfig.value("save_file", false);
-        cfg.read_file_name = fileConfig.value("read_file_name", "");
-        cfg.save_file_name = fileConfig.value("save_file_name", "");
-    }
-
-    if (j.contains("removeOutlier")) {
-        const auto& filterConfig = j["removeOutlier"];
-        cfg.mean_k = filterConfig.value("mean_k", 0);
-        cfg.threshold = filterConfig.value("threshold", 0.0f);
-    }
-
-	cfg.reach_height = j.value("reach_height", 0.0f);
-	cfg.counterbalance_height = j.value("counterbalance_height", 0.0f);
-
-    return cfg;
-}
-
-// ----------------------------------------------------------------------------
-// ±âÅ¸ À¯Æ¿
+// ê¸°íƒ€ ìœ í‹¸
 // ----------------------------------------------------------------------------
 std::string getCurrentTime() {
     auto now = std::chrono::system_clock::now();
@@ -385,13 +241,13 @@ void saveToFile(const std::string& json_result) {
     outfile.close();
 }
 
-// Æ÷ÀÎÆ® Å¬¶ó¿ìµå µ¥ÀÌÅÍ ÃÊ±âÈ­ ÇÔ¼ö
+// í¬ì¸íŠ¸ í´ë¼ìš°ë“œ ë°ì´í„° ì´ˆê¸°í™” í•¨ìˆ˜
 void resetPointCloudData() {
     std::lock_guard<std::mutex> lock(g_mutex);
     cloud_pcd->clear();
     cloud_raw->clear();
     cloud_merge->clear();
-    // ´Ù¸¥ Å¬¶ó¿ìµå µ¥ÀÌÅÍµµ ÃÊ±âÈ­ ÇÊ¿ä ½Ã Ãß°¡
+    // ë‹¤ë¥¸ í´ë¼ìš°ë“œ ë°ì´í„°ë„ ì´ˆê¸°í™” í•„ìš” ì‹œ ì¶”ê°€
     x_lengths.clear();
     y_lengths.clear();
     z_lengths.clear();
@@ -399,42 +255,15 @@ void resetPointCloudData() {
     std::cout << "[INFO] Point cloud data has been reset due to V_start_process state change." << std::endl;
 }
 
-void updateCameraPositionText(pcl::visualization::PCLVisualizer::Ptr viewer) {
-    pcl::visualization::Camera camera;
-    viewer->getCameraParameters(camera);
 
-    std::ostringstream oss;
-    oss << "Camera Pos: ("
-        << camera.pos[0] << ", "
-        << camera.pos[1] << ", "
-        << camera.pos[2] << ", "
-        << camera.pos[3] << ", "
-        << camera.pos[4] << ", "
-        << camera.pos[5] << ")";
 
-    // ±âÁ¸ ÅØ½ºÆ® Á¦°Å
-    viewer->removeShape("camera_position_text");
-
-    // »õ·Î¿î ÅØ½ºÆ® Ãß°¡
-    viewer->addText(oss.str(), 20, 705, 10, 1.0, 1.0, 1.0, "camera_position_text");
-}
-
-void DualEmitCb(livox_status status, uint32_t handle, LivoxLidarAsyncControlResponse * response, void* client_data) {
-    if (status == kLivoxLidarStatusSuccess) {
-        std::cout << "[DUAL EMIT] Enabled on handle " << handle << "\n";
-    }
-    else {
-        std::cerr << "[DUAL EMIT] Failed: " << status << "\n";
-    }
-
-}
 
 
 
 
 
 // ----------------------------------------------------------------------------
-// ¸®¼Ò½º Äİ¹é (½Ç½Ã°£ ¸ğµå)
+// ë¦¬ì†ŒìŠ¤ ì½œë°± (ì‹¤ì‹œê°„ ëª¨ë“œ)
 // ----------------------------------------------------------------------------
 void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEthernetPacket* data, void* client_data) {
     if (g_lidar_handle.load() == 0) {
@@ -444,10 +273,6 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
         //SetLivoxLidarFovCfg1(handle, &fov_cfg1, nullptr, nullptr);
         EnableLivoxLidarFov(handle, 1, nullptr, nullptr);
     }
-	if (enableDualEmit && !g_dual_emit_set.load()) {
-		g_dual_emit_set = true;
-		SetLivoxLidarDualEmit(handle, true, DualEmitCb, nullptr);
-	}
     if (!data) return;
 
     auto nowMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -480,7 +305,7 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
 }
 
 // ----------------------------------------------------------------------------
-// ÀüÃ³¸® 1) Voxel
+// ì „ì²˜ë¦¬ 1) Voxel
 // ----------------------------------------------------------------------------
 void voxelizePointCloud(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud,
     float x_leaf, float y_leaf, float z_leaf)
@@ -499,20 +324,20 @@ void voxelizePointCloud(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud,
 }
 
 // ----------------------------------------------------------------------------
-// ÀüÃ³¸® 2) Outlier Remove
+// ì „ì²˜ë¦¬ 2) Outlier Remove
 // ----------------------------------------------------------------------------
 void removeOutliers(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, const WATAConfig& config) {
     pcl::StatisticalOutlierRemoval<pcl::PointXYZI> sor;
     sor.setInputCloud(cloud);
 
     sor.setMeanK(config.mean_k);
-    sor.setStddevMulThresh(config.threshold);  // ´õ Ä¿Áö¸é Á¦°Å°¡ ÁÙ°í, ´õ ÀÛ¾ÆÁö¸é Á¦°Å°¡ ¸¹¾ÆÁü
+    sor.setStddevMulThresh(config.threshold);  // ë” ì»¤ì§€ë©´ ì œê±°ê°€ ì¤„ê³ , ë” ì‘ì•„ì§€ë©´ ì œê±°ê°€ ë§ì•„ì§
 
     sor.filter(*cloud);
 }
 
 // ----------------------------------------------------------------------------
-// [ÀÚµ¿ ³ôÀÌ Ä¶¸®ºê·¹ÀÌ¼Ç] Áö¸é Å½Áö
+// [ìë™ ë†’ì´ ìº˜ë¦¬ë¸Œë ˆì´ì…˜] ì§€ë©´ íƒì§€
 // ----------------------------------------------------------------------------
 float calculateGroundHeight(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_ground) {
     float ground_height_sum = 0.0f;
@@ -534,14 +359,14 @@ float calculateGroundHeight(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_ground) {
 }
 
 void showGroundROIBox(pcl::visualization::PCLVisualizer* viewer, bool show) {
-    // ROI »óÀÚ¸¦ Ç¥½Ã ¶Ç´Â Á¦°Å
+    // ROI ìƒìë¥¼ í‘œì‹œ ë˜ëŠ” ì œê±°
     if (show) {
         viewer->removeShape("ground_roi_box");
         viewer->addCube(
-            ground_roi_box.x_min, ground_roi_box.x_max,    // X ¹üÀ§
-            ground_roi_box.y_min, ground_roi_box.y_max,  // Y ¹üÀ§
-            ground_roi_box.z_min, ground_roi_box.z_max,     // Z ¹üÀ§
-            1.0, 0.0, 1.0, // (R=1.0, G=1.0, B=0.0) ³ë¶õ»ö
+            ground_roi_box.x_min, ground_roi_box.x_max,    // X ë²”ìœ„
+            ground_roi_box.y_min, ground_roi_box.y_max,  // Y ë²”ìœ„
+            ground_roi_box.z_min, ground_roi_box.z_max,     // Z ë²”ìœ„
+            1.0, 0.0, 1.0, // (R=1.0, G=1.0, B=0.0) ë…¸ë€ìƒ‰
             "ground_roi_box"
         );
         viewer->setShapeRenderingProperties(
@@ -556,34 +381,34 @@ void showGroundROIBox(pcl::visualization::PCLVisualizer* viewer, bool show) {
 }
 
 // ----------------------------------------------------------------------------
-// Å°º¸µå Äİ¹é ÇÔ¼ö
+// í‚¤ë³´ë“œ ì½œë°± í•¨ìˆ˜
 // ----------------------------------------------------------------------------
 void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void* viewer_void) {
     auto viewer = static_cast<pcl::visualization::PCLVisualizer*>(viewer_void);
 
     if (event.keyDown()) {
-        if (event.getKeySym() == "p" || event.getKeySym() == "P") { // 'p' Å°: ÀÏ½ÃÁ¤Áö Åä±Û
+        if (event.getKeySym() == "p" || event.getKeySym() == "P") { // 'p' í‚¤: ì¼ì‹œì •ì§€ í† ê¸€
             std::lock_guard<std::mutex> lock(control_mutex);
-            is_paused = !is_paused; // ÀÏ½ÃÁ¤Áö »óÅÂ Åä±Û
+            is_paused = !is_paused; // ì¼ì‹œì •ì§€ ìƒíƒœ í† ê¸€
             if (is_paused)
                 std::cout << "[INFO] Data reading paused.\n";
             else
                 std::cout << "[INFO] Data reading resumed.\n";
         }
-        else if (event.getKeySym() == "v" || event.getKeySym() == "V" || V_start_process) { // 'v' Å°: V_start_process Åä±Û
+        else if (event.getKeySym() == "v" || event.getKeySym() == "V") { // 'v' í‚¤: V_start_process í† ê¸€
             std::lock_guard<std::mutex> lock(control_mutex);
-            V_start_process = !V_start_process; // V_start_process »óÅÂ Åä±Û
+            V_start_process = !V_start_process; // V_start_process ìƒíƒœ í† ê¸€
             if (V_start_process)
                 std::cout << "[INFO] V_start_process set to true.\n";
             else
                 std::cout << "[INFO] V_start_process set to false.\n";
 
-            // Æ÷ÀÎÆ® Å¬¶ó¿ìµå µ¥ÀÌÅÍ ÃÊ±âÈ­
+            // í¬ì¸íŠ¸ í´ë¼ìš°ë“œ ë°ì´í„° ì´ˆê¸°í™”
             resetPointCloudData();
 
             viewer->removeShape("v_start_process_text");
             std::string initial_status = "V_start_process: " + std::string(V_start_process ? "True" : "False");
-            viewer->addText(initial_status, 20, 630, 20, 1, 1, 1, "v_start_process_text");
+            viewer->addText(initial_status, 20, 530, 20, 1, 1, 1, "v_start_process_text");
         }
         else if (event.getKeySym() == "c" || event.getKeySym() == "C") {
             heightCalibration_mode = !heightCalibration_mode;
@@ -614,7 +439,7 @@ void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void*
 }
 
 // ----------------------------------------------------------------------------
-// [ºÎÇÇ ÃøÁ¤] Æò±Õ °è»ê
+// [ë¶€í”¼ ì¸¡ì •] í‰ê·  ê³„ì‚°
 // ----------------------------------------------------------------------------
 float calculateAverage(std::vector<float>& values) {
     std::sort(values.begin(), values.end());
@@ -651,8 +476,10 @@ float calculateAverageZ(std::vector<float>& z_lengths) {
     return average_z;
 }
 
+
+
 // ----------------------------------------------------------------------------
-// [ºÎÇÇ ÃøÁ¤] YZ Æò¸é Å¬·¯½ºÅÍ¸µ
+// [ë¶€í”¼ ì¸¡ì •] YZ í‰ë©´ í´ëŸ¬ìŠ¤í„°ë§
 // ----------------------------------------------------------------------------
 void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, pcl::visualization::PCLVisualizer::Ptr viewer) {
     pcl::SACSegmentation<pcl::PointXYZI> seg;
@@ -667,15 +494,15 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, pcl::visualizatio
     pcl::PointXYZI p1_y, p2_y;
     pcl::PointXYZI p1_z, p2_z;
 
-    // Àü¿ª ¿µ¿ªÀÇ Æò¸é (¹İ»çÀ² È°¿ë ¿¹Á¤)
+    // ì „ì—­ ì˜ì—­ì˜ í‰ë©´ (ë°˜ì‚¬ìœ¨ í™œìš© ì˜ˆì •)
     pcl::PointCloud<pcl::PointXYZI>::Ptr planeCloud(new pcl::PointCloud<pcl::PointXYZI>());
     try {
         while (true) {
             seg.setModelType(pcl::SACMODEL_PLANE);
             seg.setMethodType(pcl::SAC_RANSAC);
             seg.setDistanceThreshold(0.05);
-			seg.setInputCloud(cloud); // cloud¿¡¼­ Æò¸éÀ» Ã£À½
-			seg.segment(*inliers, *coefficients); // inliers¿¡ Æò¸é ÀÎµ¦½º ÀúÀå
+			seg.setInputCloud(cloud); // cloudì—ì„œ í‰ë©´ì„ ì°¾ìŒ
+			seg.segment(*inliers, *coefficients); // inliersì— í‰ë©´ ì¸ë±ìŠ¤ ì €ì¥
 
 
             if (inliers->indices.size() < 100) {
@@ -686,14 +513,14 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, pcl::visualizatio
             std::cout << "[DEBUG] Input cloud size: " << cloud->size() << std::endl;
 
 
-            // Æò¸éÀÇ Æ÷ÀÎÆ® Å¬¶ó¿ìµå »ı¼º
+            // í‰ë©´ì˜ í¬ì¸íŠ¸ í´ë¼ìš°ë“œ ìƒì„±
             pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_plane(new pcl::PointCloud<pcl::PointXYZI>);
             extract.setInputCloud(cloud);
             extract.setIndices(inliers);
             extract.setNegative(false);
             extract.filter(*cloud_plane);
 
-            // Å¬·¯½ºÅÍ¸µ
+            // í´ëŸ¬ìŠ¤í„°ë§
             pcl::search::KdTree<pcl::PointXYZI>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZI>());
             tree->setInputCloud(cloud_plane);
 
@@ -701,9 +528,9 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, pcl::visualizatio
             pcl::EuclideanClusterExtraction<pcl::PointXYZI> ec;
             ec.setClusterTolerance(0.06);
             ec.setMinClusterSize(80);
-            ec.setMaxClusterSize(3000);
-            seg.setMaxIterations(5000);  // ±âº»°ª 1000º¸´Ù Áõ°¡
-            seg.setProbability(0.99); // ½Å·Úµµ¸¦ ³ôÀÓ
+            ec.setMaxClusterSize(20000);
+            seg.setMaxIterations(10000);  // ê¸°ë³¸ê°’ 1000ë³´ë‹¤ ì¦ê°€
+            seg.setProbability(0.99); // ì‹ ë¢°ë„ë¥¼ ë†’ì„
 
             ec.setSearchMethod(tree);
             ec.setInputCloud(cloud_plane);
@@ -735,24 +562,24 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, pcl::visualizatio
                 }
 
                 //std::cout << "max_y : " << max_y << " min_y : " << min_y << std::endl;
-                float length_y = max_y - min_y; // YÃà ¹æÇâ ±æÀÌ
+                float length_y = max_y - min_y; // Yì¶• ë°©í–¥ ê¸¸ì´
                 if (length_y > max_length_y) {
                     max_length_y = length_y;
                     p1_y = pcl::PointXYZI(min_x, min_y, min_z);
                     p2_y = pcl::PointXYZI(min_x, max_y, min_z);
                 }
 
-                float length_z = max_z - min_z; // ZÃà ¹æÇâ ±æÀÌ
+                float length_z = max_z - min_z; // Zì¶• ë°©í–¥ ê¸¸ì´
                 if (length_z > max_length_z) {
                     max_length_z = length_z;
                     p1_z = pcl::PointXYZI(min_x, min_y, min_z);
                     p2_z = pcl::PointXYZI(min_x, min_y, max_z);
                 }
-                planeCloud = cloud_plane; // ÀüÃ¼ Æò¸é Å¬¶ó¿ìµå ÀúÀå (°è»ê ÈÄ »ç¿ë)
+                planeCloud = cloud_plane; // ì „ì²´ í‰ë©´ í´ë¼ìš°ë“œ ì €ì¥ (ê³„ì‚° í›„ ì‚¬ìš©)
 
             }
 
-            extract.setNegative(true); // ÀÌÈÄ Å¬¶ó¿ìµå Á¦°Å Ã³¸®
+            extract.setNegative(true); // ì´í›„ í´ë¼ìš°ë“œ ì œê±° ì²˜ë¦¬
             extract.filter(*cloud);
         }
     }
@@ -805,7 +632,7 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, pcl::visualizatio
 
         float roi_min_x = A.x - delta_y;
         float roi_max_x = A.x + delta_y;
-        // Y´Â µÎ Á¡ÀÇ ÃÖ¼Ò/ÃÖ´ë°ª
+        // YëŠ” ë‘ ì ì˜ ìµœì†Œ/ìµœëŒ€ê°’
         float roi_min_y = std::min(A.y, B.y);
         float roi_max_y = std::max(A.y, B.y);
         float roi_min_z = A.z - delta_y;
@@ -942,8 +769,321 @@ void detectPlaneYZ(pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, pcl::visualizatio
     }
 }
 
+
+
+// ë©¤ë²„ ë³€ìˆ˜
+std::vector<float> width_samples, depth_samples, height_samples;
+static constexpr int SAMPLE_COUNT = 4;
+static constexpr int BufferSize = 4; // ë²„í¼ í¬ê¸°
+std::deque<cv::Mat> frameBuf;
+
+bool computeTopFaceDimensions_ChullPCA(
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud,
+    float& width_mm, float& depth_mm, float& height_mm,
+    pcl::visualization::PCLVisualizer::Ptr viewer = nullptr)
+{
+    if (!cloud || cloud->empty()) return false;
+
+
+    // -----------------[ì„¸ê·¸ë©˜í…Œì´ì…˜]------------------
+
+    // 1) ìœ—ë©´ í‰ë©´ ë¶„í• 
+    pcl::SACSegmentation<pcl::PointXYZI> seg;
+    seg.setOptimizeCoefficients(true);
+    seg.setModelType(pcl::SACMODEL_PLANE);
+    seg.setMethodType(pcl::SAC_RANSAC);
+    seg.setDistanceThreshold(0.06); // ë³µì…€ë¡œ ìµœëŒ€ 5cm ê°„ê²© ë–¨ì–´íŠ¸ë¦´íƒœë‹ˆ ê·¸ ì™¸ í¬ì¸íŠ¸ë°€ë„ ì œì™¸ì‹œí‚¤ê¸°
+    seg.setEpsAngle(15.0f * M_PI / 180.0f);
+    seg.setInputCloud(cloud);
+
+    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+    pcl::ModelCoefficients::Ptr coeff(new pcl::ModelCoefficients);
+    seg.segment(*inliers, *coeff);
+    if (inliers->indices.size() < 100) return false;
+
+    pcl::PointCloud<pcl::PointXYZI>::Ptr plane_cloud(new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::ExtractIndices<pcl::PointXYZI> extract;
+    extract.setInputCloud(cloud);
+    extract.setIndices(inliers);
+    extract.setNegative(false);
+    extract.filter(*plane_cloud);
+    if (plane_cloud->empty()) return false;
+
+    pcl::search::KdTree<pcl::PointXYZI>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZI>);
+    tree->setInputCloud(plane_cloud);
+
+    std::vector<pcl::PointIndices> cluster_indices;
+    pcl::EuclideanClusterExtraction<pcl::PointXYZI> ec;
+    ec.setClusterTolerance(0.06);         // í´ëŸ¬ìŠ¤í„° ê°„ ê±°ë¦¬ ê¸°ì¤€ (2cm)
+    ec.setMinClusterSize(100);            // ë„ˆë¬´ ì‘ì€ í´ëŸ¬ìŠ¤í„° ì œê±°
+    ec.setMaxClusterSize(10000);         // ë„ˆë¬´ í° í´ëŸ¬ìŠ¤í„° ì œê±°
+    ec.setSearchMethod(tree);
+    ec.setInputCloud(plane_cloud);
+    ec.extract(cluster_indices);
+
+    if (cluster_indices.empty()) return false;
+
+    // ê°€ì¥ í° í´ëŸ¬ìŠ¤í„°ë§Œ ì‚¬ìš©
+    auto& largest_cluster = *std::max_element(cluster_indices.begin(), cluster_indices.end(),
+        [](const pcl::PointIndices& a, const pcl::PointIndices& b) {
+        return a.indices.size() < b.indices.size();
+    });
+
+    pcl::PointCloud<pcl::PointXYZI>::Ptr cleaned_plane(new pcl::PointCloud<pcl::PointXYZI>);
+    for (int idx : largest_cluster.indices) {
+        cleaned_plane->push_back((*plane_cloud)[idx]);
+    }
+    plane_cloud = cleaned_plane;
+
+    // ----------------[ì„¸ê·¸ë©˜í…Œì´ì…˜ ë]-------------
+
+
+    // ------------[ì „ì²˜ë¦¬]------------
+
+    struct FilterParams {
+        float voxel_leaf;
+        int sor_mean_k;
+        float sor_stddev;
+        float ror_radius;
+        int ror_min_neigh;
+    };
+
+	size_t N = plane_cloud->size();
+    std::ostringstream oss;
+    oss << "[pln] Points:       " << plane_cloud->size() << " pts\n";
+
+    FilterParams P;
+    if (N < 500) {
+        P = { 0.005f, 35, 1.0f, 0.05f, 5 };
+    }
+    else if (N < 3000) {
+        P = { 0.01f, 50, 1.5f, 0.10f, 3 };
+    }
+    else {
+        P = { 0.02f, 0, 0.0f, 0.00f, 0 };
+    }
+
+    pcl::VoxelGrid<pcl::PointXYZI> vg;
+    vg.setInputCloud(plane_cloud);
+    vg.setLeafSize(0.05f, P.voxel_leaf, P.voxel_leaf);
+    vg.filter(*plane_cloud);
+
+    //pcl::StatisticalOutlierRemoval<pcl::PointXYZI> sor;
+    //sor.setInputCloud(plane_cloud);
+    //sor.setMeanK(P.sor_mean_k);
+    //sor.setStddevMulThresh(P.sor_stddev);
+    //sor.filter(*plane_cloud);
+
+    //pcl::RadiusOutlierRemoval<pcl::PointXYZI> ror;
+    //ror.setInputCloud(plane_cloud);
+    //ror.setRadiusSearch(P.ror_radius);
+    //ror.setMinNeighborsInRadius(P.ror_min_neigh);
+    //ror.filter(*plane_cloud);
+
+    // plane_cloud ì‹œê°í™”
+	if (viewer) {
+		viewer->removePointCloud("plane_cloud");
+		viewer->addPointCloud<pcl::PointXYZI>(plane_cloud, "plane_cloud");
+		viewer->setPointCloudRenderingProperties(
+			pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "plane_cloud");
+	}
+
+    oss << std::fixed << std::setprecision(2)
+        << "[vg]  leaf:          " << P.voxel_leaf * 100 << " cm\n"
+		<< "[sor] Mean K:    " << P.sor_mean_k << "\n"
+		<< "[sor] Stddev:     " << P.sor_stddev << "\n"
+		<< "[ror] Radius:      " << P.ror_radius * 100 << " cm\n"
+		<< "[ror] Neigh:       " << P.ror_min_neigh << " ea";
+
+    viewer->removeShape("Params_text");
+    viewer->addText(
+        oss.str(),
+        10, 200, 14, 1.0 ,1.0 ,1.0,
+        "Params_text"
+    );
+
+    // --------------[ì „ì²˜ë¦¬ ë]--------------
+
+
+
+    // -------------[2d í‰ë©´, chull ì™¸ê°ì„ ]---------------
+
+    // 2) plane_cloud -> 2D í¬ì¸íŠ¸ (y,z) í‰ë©´ íˆ¬ì˜
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pts2d(new pcl::PointCloud<pcl::PointXYZ>);
+    pts2d->reserve(plane_cloud->size());
+    for (auto& p3 : plane_cloud->points) { // p3: í‰ë©´ í´ëŸ¬ìŠ¤í„° í´ë¼ìš°ë“œ(yê¹Šì´ zë„ˆë¹„), p2: ë°”ìš´ë”©ë°•ìŠ¤(xê¹Šì´ yë„ˆë¹„)
+        pcl::PointXYZ p2;
+        p2.x = p3.y; 
+        p2.y = p3.z;
+		p2.z = 0.0f; // zëŠ” 0ìœ¼ë¡œ ì„¤ì •
+        pts2d->push_back(p2);
+    }
+
+    // 3) Convex Hull ìœ¼ë¡œ ì™¸ê³½ ë‹¤ê°í˜• êµ¬í•˜ê¸°
+    pcl::ConvexHull<pcl::PointXYZ> hull;
+    hull.setDimension(2);
+    hull.setInputCloud(pts2d); // pts2d=plane_cloud
+    pcl::PointCloud<pcl::PointXYZ>::Ptr hull_pts(new pcl::PointCloud<pcl::PointXYZ>);
+    hull.reconstruct(*hull_pts);
+    if (hull_pts->size() < 3) return false;
+
+    // -----------------------------------------------
+
+    float minY = FLT_MAX, maxY = -FLT_MAX,
+        minZ = FLT_MAX, maxZ = -FLT_MAX;
+    for (auto& p : *pts2d) {
+        minY = std::min(minY, p.x);
+        maxY = std::max(maxY, p.x);
+        minZ = std::min(minZ, p.y);
+        maxZ = std::max(maxZ, p.y);
+    }
+
+    // í•´ìƒë„: 512Ã—512 (ì¡°ì ˆ ê°€ëŠ¥)
+    int W = 512, H = 512;
+    cv::Mat raw = cv::Mat::zeros(H, W, CV_8UC1);
+    for (auto& p : *pts2d) {
+        int u = int((p.x - minY) / (maxY - minY) * (W - 1));
+        int v = int((p.y - minZ) / (maxZ - minZ) * (H - 1));
+        raw.at<uchar>(H - 1 - v, u) = 255;  // vì¶• ë’¤ì§‘ì–´ì„œ ê·¸ë¦¬ê¸°
+    }
+	
+	frameBuf.push_back(raw.clone());
+	if (frameBuf.size() > BufferSize) {
+		frameBuf.pop_front();
+	}
+
+    cv::Mat acc = cv::Mat::zeros(raw.size(), CV_32F);
+    for (auto& f : frameBuf) {
+        cv::Mat tmp;
+        f.convertTo(tmp, CV_32F, 1.0 / 255.0);
+        acc += tmp;
+    }
+    cv::Mat acc8;
+    acc.convertTo(acc8, CV_8U, 255.0f / float(frameBuf.size()));
+
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, { 15,15 });
+    cv::morphologyEx(acc8, acc8, cv::MORPH_CLOSE, kernel);
+
+	cv::imshow("1) Raw", raw);
+	cv::waitKey(1);
+
+	cv::imshow("1) Accumulated", acc8);
+	cv::waitKey(1);
+
+    std::vector<cv::Vec3f> houghCircles;
+    cv::HoughCircles(
+        acc8,
+        houghCircles,
+        cv::HOUGH_GRADIENT,
+        1.0,              // dp
+        90,            // minDist between centers
+        100, 50,        // param1=Canny thresh, param2=accumulator thresh
+        100,   // minRadius (0.1m â†’ í”½ì…€ ìŠ¤ì¼€ì¼ë¡œ ë³€í™˜)
+        250    // maxRadius (0.5m â†’ í”½ì…€ ìŠ¤ì¼€ì¼)
+    );
+
+    cv::Mat dbg;
+	cv::cvtColor(acc8, dbg, cv::COLOR_GRAY2BGR);
+    for (auto& c : houghCircles) {
+		cv::Point ctr(cvRound(c[0]), cvRound(c[1]));
+		int r = cvRound(c[2]);
+		cv::circle(dbg, ctr, r, cv::Scalar(0, 255, 0), 2); // ì› ê·¸ë¦¬ê¸°
+		cv::circle(dbg, ctr, 2, cv::Scalar(0, 0, 255), -1); // ì¤‘ì‹¬ì  ê·¸ë¦¬ê¸°
+    }
+	cv::imshow("2) Hough Circles", dbg);
+	cv::waitKey(1);
+
+    // --- 3) ê²€ì¶œëœ ì›ë“¤ì„ 3D ë·°ì–´ì— ê·¸ë¦¬ê¸° ---
+    float plane_x = -coeff->values[3] / coeff->values[0] + 0.005f;
+    for (size_t i = 0; i < houghCircles.size(); ++i) {
+        float uc = houghCircles[i][0], vc = houghCircles[i][1], rp = houghCircles[i][2];
+        // í”½ì…€â†’ì‹¤ì œ y,z ì¢Œí‘œ ì—­ë³€í™˜
+        float cy = minY + uc / (W - 1) * (maxY - minY);
+        float cz = minZ + (H - 1 - vc) / (H - 1) * (maxZ - minZ);
+        float r = rp / (W - 1) * (maxY - minY);  // m ë‹¨ìœ„ ë°˜ì§€ë¦„
+
+        // ë°˜íˆ¬ëª… êµ¬ì²´ë¡œ ì› ëª¨ë¸
+        std::string id = "hough_circle_" + std::to_string(i);
+        viewer->addSphere(
+            pcl::PointXYZ(plane_x, cy, cz),
+            r,
+            0.0, 0.0, 1.0,
+            id
+        );
+        viewer->setShapeRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_OPACITY, 0.3, id);
+
+    }
+
+    // ì› ê²€ì¶œ ì„±ê³µ ì—¬ë¶€
+    bool found = !houghCircles.empty();
+    if (found) {
+        float r = houghCircles[0][2] / (W - 1) * (maxY - minY);
+        width_mm = depth_mm = 2 * r * 1000.0f;
+    }
+    else {
+        std::vector<cv::Point2f> cv_pts;
+        cv_pts.reserve(hull_pts->size());
+        for (auto& p : hull_pts->points) { cv_pts.emplace_back(p.x, p.y); }
+
+        cv::RotatedRect r = cv::minAreaRect(cv_pts); // ë§¤í•‘
+
+        float angle_deg = r.angle;
+
+        viewer->removeShape("angle_text");
+        viewer->addText("Angle: " + std::to_string(angle_deg) + u8" Â°", 10, 80, 14, 1.0, 1.0, 1.0, "angle_text");
+
+        cv::Point2f corner[4];
+        r.points(corner);
+
+        if (std::abs(angle_deg) < 45.0f) {
+            depth_mm = r.size.width * 1000.0f;
+            width_mm = r.size.height * 1000.0f;
+        }
+        else {
+            width_mm = r.size.width * 1000.0f;
+            depth_mm = r.size.height * 1000.0f;
+        }
+        float plane_x = -coeff->values[3] / coeff->values[0] + 0.005f;
+
+
+        // 4ê°œ ëª¨ì„œë¦¬ ì„  ê·¸ë¦¬ê¸°
+        for (int i = 0; i < 4; ++i) {
+            const auto& A = corner[i], & B = corner[(i + 1) % 4];
+            std::string id = "obb_edge_" + std::to_string(i);
+            viewer->addLine(
+                pcl::PointXYZ(plane_x, A.x, A.y),
+                pcl::PointXYZ(plane_x, B.x, B.y),
+                0.0, 1.0, 0.0, id);
+            viewer->setShapeRenderingProperties(
+                pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2, id);
+        }
+    }
+
+
+    float max_x = -std::numeric_limits<float>::infinity();
+    for (auto& pt : plane_cloud->points)
+        max_x = std::max(max_x, pt.x);
+    float ground_offset_mm = fixed_ground_height * 1000.0f;
+    height_mm = max_x * 1000.0f + ground_offset_mm;
+
+    if (viewer) {       
+        // ê²°ê³¼ í…ìŠ¤íŠ¸
+        viewer->removeShape("dim_text");
+        std::ostringstream oss;
+        oss << "W: " << width_mm  << " mm\n"
+            << "D: " << depth_mm  << " mm\n"
+            << "H: " << height_mm << " mm";
+
+        viewer->addText(oss.str(), 10, 100, 16, 1,1,1, "dim_text");
+    }
+
+    return true;
+}
+
+
 // ----------------------------------------------------------------------------
-// [ºÎÇÇ ÃøÁ¤] ³ôÀÌ °è»ê
+// [ë¶€í”¼ ì¸¡ì •] ë†’ì´ ê³„ì‚°
 // ----------------------------------------------------------------------------
 void calcMaxX(std::vector<float>& x_values, float& max_x_value)
 {
@@ -989,48 +1129,17 @@ void calcMaxX(std::vector<float>& x_values, float& max_x_value)
     }
 }
 
-// ----------------------------------------------------------------------------
-// [ºÎÇÇ ÃøÁ¤] ±â¿ï±â °è»ê
-// ----------------------------------------------------------------------------
-void calculateAnglePoints(const pcl::PointXYZ& start_point, const pcl::PointXYZ& end_point, pcl::visualization::PCLVisualizer::Ptr viewer) {
-    float dy = end_point.y - start_point.y;
-    float angle_radians = std::atan(dy);  // ±â¿ï±â
 
-
-    angle_degrees = angle_radians * 180.0 / M_PI;
-
-    std::cout << "start_min_y_point: ("
-        << start_point.x << ", " << start_point.y << ", " << start_point.z << ")" << std::endl;
-    std::cout << "end_min_y_point: ("
-        << end_point.x << ", " << end_point.y << ", " << end_point.z << ")" << std::endl;
-
-
-    viewer->removeShape("angle_line");
-    pcl::PointXYZ start_z(start_point.x, start_point.y, start_point.z);
-    pcl::PointXYZ end_z(start_point.x, end_point.y, end_point.z);
-    viewer->addLine(start_z, end_z, 0.0, 1.0, 1.0, "angle_line");
-}
-
-struct PalletROIBox {
-    float x_min, x_max;
-    float y_min, y_max;
-    float z_min, z_max;
-};
-PalletROIBox pallet_roi_box = {
-    -2.27f, 5.59f,
-    -0.7f, -0.35f,
-    0.1f, 0.85f
-};
 
 void sendHeartbeatSignal() {
     CURL* curl = curl_easy_init();
     if (curl) {
-        // °¡µğ¾ğ¿¡¼­ ÇÒ´çµÈ Æ÷ÀÎÆ®
+        // ê°€ë””ì–¸ì—ì„œ í• ë‹¹ëœ í¬ì¸íŠ¸
         const char* url = "http://localhost:8081/heartbeat";
         curl_easy_setopt(curl, CURLOPT_URL, url);
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
 
-        // Àü¼ÛÇÒ JSON ¹®ÀÚ¿­
+        // ì „ì†¡í•  JSON ë¬¸ìì—´
         const char* postData = "{\"status\":\"alive\"}";
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData);
 
@@ -1038,7 +1147,7 @@ void sendHeartbeatSignal() {
 
         CURLcode res = curl_easy_perform(curl);
         if (res != CURLE_OK) {
-            std::cerr << "[ERROR] Hearbeat Àü¼Û ½ÇÆĞ: " << curl_easy_strerror(res) << std::endl;
+            std::cerr << "[ERROR] Hearbeat ì „ì†¡ ì‹¤íŒ¨: " << curl_easy_strerror(res) << std::endl;
         }
         curl_easy_cleanup(curl);
     }
@@ -1051,257 +1160,811 @@ void heartbeatThreadFunction() {
         long long lastLidarTime = lastLidarTimeMillis.load();
         long long elapsed = nowMillis - lastLidarTime;
 
-        if (elapsed > 5000) { // 5ÃÊ ÀÌ»ó °æ°úÇÏ¸é
-            std::cerr << "[ERROR] LiDAR µ¥ÀÌÅÍ ¼ö½Å Áß´ÜµÊ. ÇÁ·Î±×·¥ Á¾·á." << std::endl;
+        if (elapsed > 5000) { // 5ì´ˆ ì´ìƒ ê²½ê³¼í•˜ë©´
+            std::cerr << "[ERROR] LiDAR ë°ì´í„° ìˆ˜ì‹  ì¤‘ë‹¨ë¨. í”„ë¡œê·¸ë¨ ì¢…ë£Œ." << std::endl;
             heartbeatRunning.store(false);
             break;
         }
-        sendHeartbeatSignal(); // heartbeat ½ÅÈ£ Àü¼Û ÇÔ¼ö Àü¼Û
-        std::this_thread::sleep_for(std::chrono::seconds(1)); // 1ÃÊ¸¶´Ù ½ÅÈ£ Àü¼Û
+        sendHeartbeatSignal(); // heartbeat ì‹ í˜¸ ì „ì†¡ í•¨ìˆ˜ ì „ì†¡
+        std::this_thread::sleep_for(std::chrono::seconds(1)); // 1ì´ˆë§ˆë‹¤ ì‹ í˜¸ ì „ì†¡
     }
 }
 
 
-// ----------------------------------------------------------------------------
-static std::map<std::string, vtkImageData*> imageCache;
-vtkImageData* LoadPNG(const std::string& path) {
-    if (!imageCache.count(path)) {
-        auto rdr = vtkSmartPointer<vtkPNGReader>::New();
-        rdr->SetFileName(path.c_str());
-        rdr->Update();
-        imageCache[path] = rdr->GetOutput();
-        imageCache[path]->Register(nullptr);
-    }
-    return imageCache[path];
-}
 
-vtkSmartPointer<vtkButtonWidget> MakeButton(
-    vtkRenderWindowInteractor* iren,
-    vtkRenderer* uiRen,
-    const std::string& icon_off,
-    const std::string& icon_on,
-    double bnds[6],
-    bool* flag_ptr,
-    const std::string& flagName)     
+
+
+
+
+
+bool accumulatePlaneClusters(
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud_in,
+    float roiXmin, float roiXmax,
+    float roiYmin, float roiYmax,
+    float roiZmin, float roiZmax,
+    int   bufferSize,
+    pcl::PointCloud<pcl::PointXYZI>::Ptr& outMerged,
+    bool resetAccum,
+    pcl::visualization::PCLVisualizer::Ptr viewer = nullptr)
 {
-    // 1) ¹öÆ° ¸®ÇÁ·¹Á¨Å×ÀÌ¼Ç
-    auto rep = vtkSmartPointer<vtkTexturedButtonRepresentation2D>::New();
-    rep->SetNumberOfStates(2);
-    rep->SetButtonTexture(0, LoadPNG(icon_off));
-    rep->SetButtonTexture(1, LoadPNG(icon_on));
-    rep->SetRenderer(uiRen);
-    rep->PlaceWidget(bnds);
+    using clk = std::chrono::high_resolution_clock;
 
-    if (flag_ptr) {
-        rep->SetState(*flag_ptr ? 1 : 0);
+    auto t0 = clk::now();
+    // 1) ROI ë‚´ ì ë§Œ í•„í„°ë§
+    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_roi(new pcl::PointCloud<pcl::PointXYZI>);
+    for (const auto& pt : cloud_in->points) {
+        if (pt.x >= roiXmin && pt.x <= roiXmax &&
+            pt.y >= roiYmin && pt.y <= roiYmax &&
+            pt.z >= roiZmin && pt.z <= roiZmax) {
+            cloud_roi->push_back(pt);
+        }
+    }
+    if (cloud_roi->empty()) return false;
+
+    auto t1 = clk::now();
+
+    // 2) ë°€ì§‘ í´ëŸ¬ìŠ¤í„°ë§Œ ì¶”ì¶œ (Euclidean Clustering)
+    pcl::search::KdTree<pcl::PointXYZI>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZI>);
+    tree->setInputCloud(cloud_roi);
+    std::vector<pcl::PointIndices> clusters;
+    pcl::EuclideanClusterExtraction<pcl::PointXYZI> ec;
+    ec.setClusterTolerance(0.04f);      // 5cm ì´ë‚´ ì ë“¤ë§Œ ë¬¶ìŒ
+    ec.setMinClusterSize(200);          // ìµœì†Œ 100ì  ì´ìƒ
+    ec.setMaxClusterSize(100000);      // ìµœëŒ€ ì œí•œì€ í¬ê²Œ
+    ec.setSearchMethod(tree);
+    ec.setInputCloud(cloud_roi);
+    ec.extract(clusters);
+    if (clusters.empty()) return false;
+
+    // ì˜ˆ: ê°€ì¥ í° êµ°ì§‘ í•˜ë‚˜ë§Œ ì“¸ ê²½ìš°
+    auto largest = *std::max_element(clusters.begin(), clusters.end(),
+        [](auto& a, auto& b) { return a.indices.size() < b.indices.size(); });
+    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_dense(new pcl::PointCloud<pcl::PointXYZI>);
+    {
+        pcl::ExtractIndices<pcl::PointXYZI> ex;
+        pcl::PointIndices::Ptr idx(new pcl::PointIndices(largest));
+        ex.setInputCloud(cloud_roi);
+        ex.setIndices(idx);
+        ex.setNegative(false);
+        ex.filter(*cloud_dense);
+    }
+
+    auto t2 = clk::now();
+
+    // 3) ë‹¨ì¼ RANSAC í‰ë©´ ì¶”ì¶œ
+    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+    pcl::ModelCoefficients::Ptr coeff(new pcl::ModelCoefficients);
+    pcl::SACSegmentation<pcl::PointXYZI> seg;
+    seg.setOptimizeCoefficients(true);
+    seg.setModelType(pcl::SACMODEL_PLANE);
+    seg.setMethodType(pcl::SAC_RANSAC);
+    seg.setDistanceThreshold(0.08f);
+    seg.setMaxIterations(2000000);
+    seg.setProbability(0.90f);
+    seg.setInputCloud(cloud_dense);
+    seg.segment(*inliers, *coeff);
+    if (inliers->indices.size() < 100) return false;
+
+    // 4) ì¶”ì¶œëœ í‰ë©´ë§Œ ë½‘ì•„ì„œ mergedë¡œ ì‚¬ìš©
+    pcl::PointCloud<pcl::PointXYZI>::Ptr plane(new pcl::PointCloud<pcl::PointXYZI>());
+    {
+        pcl::ExtractIndices<pcl::PointXYZI> ex;
+        ex.setInputCloud(cloud_dense);
+        ex.setIndices(inliers);
+        ex.setNegative(false);
+        ex.filter(*plane);
+    }
+
+    auto t3 = clk::now();
+
+    static std::deque<pcl::PointCloud<pcl::PointXYZI>::Ptr> buf;
+    if (resetAccum) buf.clear();
+
+    // 3) ì¶”ì¶œëœ ëª¨ë“  í‰ë©´ì„ ì „ì—­ ë²„í¼ì— ëˆ„ì 
+    buf.push_back(plane);
+    if ((int)buf.size() > bufferSize) buf.pop_front();
+    //std::cerr << "[DBG] buf size = " << buf.size() << "\n";
+
+
+    // 4) ëˆ„ì  ìƒíƒœ í‘œì‹œ
+    if (viewer) {
+        viewer->removeShape("status_text");
+        if ((int)buf.size() < bufferSize) {
+            viewer->addText(
+                "Accumulating: " + std::to_string(buf.size()) + "/" + std::to_string(bufferSize),
+                10, 550, 12, 1, 1, 1, "status_text");
+        }
+        else {
+            viewer->addText(
+                "Ready to measure!",
+                10, 550, 12, 0.5, 0.8, 1.0, "status_text");
+        }
+    }
+
+    if ((int)buf.size() < bufferSize)
+        return false;
+
+    pcl::PointCloud<pcl::PointXYZI>::Ptr merged(new pcl::PointCloud<pcl::PointXYZI>());
+    for (auto& f : buf) *merged += *f;
+    outMerged = merged;
+
+    auto t4 = clk::now();
+
+    std::ostringstream oss;
+	oss << "(1) Accumlata Times\n"
+        << "- ROI filtering: " << std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count() << "ms,\n"
+        << "- Clustering: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << "ms,\n"
+        << "- Segmentation: " << std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count() << "ms,\n"
+        << "- Buffer merged: " << std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count() << "ms\n"
+        << " (All Times: " << std::chrono::duration_cast<std::chrono::milliseconds>(t4-t0).count() << "ms)";
+    viewer->removeShape("1clk_delay");
+	viewer->addText(
+		oss.str(),
+		750, 425, 12, 1.0, 1.0, 1.0,
+		"1clk_delay"
+	);
+    
+    return true;
+}
+
+
+
+
+
+
+
+
+void filterMergedCloud(
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud_in,
+    pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud_out,
+    pcl::visualization::PCLVisualizer::Ptr viewer = nullptr,
+    bool reach_off_counter=false,
+    float tmp_height_mm = 0.0f)
+{
+	using clk = std::chrono::high_resolution_clock;
+	auto t0 = clk::now();
+
+    // 1) í¬ì¸íŠ¸ ìˆ˜ì— ë”°ë¥¸ íŒŒë¼ë¯¸í„° ê²°ì •
+    struct FilterParams {
+        float voxel_leaf;
+        int sor_mean_k;
+        float sor_stddev;
+    } P;
+    size_t N = cloud_in->size();
+
+    if (!reach_off_counter) { // ì¹´ìš´í„°ì¼ë•Œ
+        if (N < 1000) {
+            P = { 0.025f, 60, 0.5f }; // 2st_1 | height=244.9
+        }
+        else if (N < 1500) {
+            P = { 0.01f, 10, 0.25 }; // 2st_2 | height=268.3
+        }
+        else if (N < 2000) {
+            P = { 0.005f, 80, 1.5f };
+        }
+        else if (N < 2500) {
+            P = { 0.03f, 10, 0.5f }; // 2st_3 | height=260 && 2st_4 | height=
+        }
+        else if (N < 3000) {
+            P = { 0.02f, 65, 0.25f };
+        }
+        else if (N < 5000) {
+            P = { 0.02f, 65, 0.25f };
+        }
+        else if (N < 7000) {
+            if (tmp_height_mm < 1200) P = { 0.02f, 65, 0.25f };
+            else P = { 0.005f, 75, 1.75f }; // 2st_7
+        }
+        else if (N < 9000) {
+            if (tmp_height_mm < 1200) P = { 0.02f, 65, 0.25f };
+            else P = { 0.01f, 90, 2.75 }; // 2st_6 *
+        }
+        else if (N < 10000) {
+            if (tmp_height_mm < 1400) P = { 0.015f, 10, 0.5f }; // 2st_11
+            else P = { 0.03f, 30, 2.25f }; // 2st_13 , 2st_15
+        }
+        else if (N < 11000) {
+            P = { 0.015, 10, 0.5 }; // 2st_11
+        }
+        else if (N < 12000) {
+            if (tmp_height_mm < 1400) P = { 0.01f, 90, 1.25 }; // 2st_10 *
+            else P = { 0.01f, 40, 0.25f }; //
+        }
+        else if (N < 13000) {
+            P = { 0.025f, 20, 0.25f };
+        }
+        else if (N < 15000) {
+            P = { 0.02f, 95, 2.75f }; // 2st_12 
+        }
+        else if (N < 17000) {
+            P = { 0.005f, 80, 2.0f }; // 2st_14 
+        }
+        else if (N < 18000) {
+            P = { 0.005f, 75, 1.5f };
+        }
+        else if (N < 20000) {
+            P = { 0.005f, 65, 1.0f };
+        }
+        else if (N < 24000) {
+            P = { 0.015, 20, 0.5 };
+        }
+        else if (N < 25000) {
+            P = { 0.015, 25, 1.25 };
+        }
+        else if (N < 27000) {
+            P = { 0.003f, 10, 1.5f };
+        }
+        else if (N < 55000) {
+            P = { 0.01f, 50, 1.5f };
+        }
+        else {
+            P = { 0.02f, 65, 1.7f };
+        } // 0.02 10 0.25 2st_15
+        // 0.02 10 2.25 2st_6 1275h
+    }
+    else { // ë¦¬ì¹˜ ì§€ê²Œì°¨
+        if (N < 2000) {
+            P = { 0.015f, 100, 0.75f }; //   ã…‡
+        }
+        else if (N < 4000) {
+            P = { 0.02f, 10, 0.25f }; // h 385 box 2ê°œ ã…‡
+        }
+        else if (N < 10000) {
+            if (tmp_height_mm < 700) P = { 0.01f,95,1.25f }; // miniboxs   ã…‡
+            else P = { 0.025f, 25, 1.25f }; // h 780   ã…‡
+        }
+        else if (N < 14000) {
+            if (tmp_height_mm < 700) P = { 0.01f,95,1.25f }; 
+            else P = { 0.03f, 15, 1.5f }; // h 905    ã…‡
+        }
+        else if (N < 20000) {
+            if (tmp_height_mm < 1000) P = { 0.02f, 30, 1.25f }; // h 870   ã…‡
+            else P = { 0.02f, 70, 1.25f }; // h 1180~1240
+        }
+        else if (N < 22000) {
+            if (tmp_height_mm < 1000) P = { 0.02f, 30, 1.25f }; // h 870
+            else P = { 0.02f, 80, 1.5f }; // h 1180~1240   X
+        }
+        else if (N < 60000) {
+            if (tmp_height_mm < 1300) P = { 0.015f, 20, 0.5f }; // h 1180~1240
+            else P = { 0.01f, 50, 1.0f }; // h 1400
+        }
+        else if (N < 70000) {            
+            P = { 0.01f, 40, 0.75 }; // h 1250
+        }
+        else if (N < 80000) {            
+            P = { 0.02f, 35, 1.0f }; // h 1650
+        }
+        else if (N < 90000) {
+            P = { 0.02f, 15, 0.75 }; // h 1595, h 1610
+        }
+        else if (N < 100000) {
+            if (tmp_height_mm < 1800) P = { 0.03f, 15, 2.25 }; // h 1600
+            else P = { 0.03f, 5, 0.25f }; // h 1890
+        }
+        else {
+            P = { 0.03f, 5, 0.25f };
+        }
+    }
+
+    // 2) VoxelGrid: ë‹¤ìš´ìƒ˜í”Œë§
+    pcl::VoxelGrid<pcl::PointXYZI> voxel;
+    voxel.setInputCloud(cloud_in);
+    voxel.setLeafSize(P.voxel_leaf, P.voxel_leaf, P.voxel_leaf);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_voxel(new pcl::PointCloud<pcl::PointXYZI>());
+    voxel.filter(*cloud_voxel);
+
+    // 3) StatisticalOutlierRemoval: ë…¸ì´ì¦ˆ ì œê±°
+    pcl::StatisticalOutlierRemoval<pcl::PointXYZI> sor;
+    sor.setInputCloud(cloud_voxel);
+    sor.setMeanK(P.sor_mean_k);
+    sor.setStddevMulThresh(P.sor_stddev);
+    cloud_out.reset(new pcl::PointCloud<pcl::PointXYZI>());
+    sor.filter(*cloud_out);
+
+
+    std::ostringstream oss;
+    oss << "[pln]  inPoints:       " << cloud_in->size() << " pts\n";
+    oss << "[pln] outPoints:       " << cloud_out->size() << " pts\n";
+
+    if (viewer) {
+        viewer->removePointCloud("cloud_out");
+        viewer->addPointCloud<pcl::PointXYZI>(cloud_in, "cloud_out");
+        viewer->setPointCloudRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "cloud_out");
+    }
+
+    oss << std::fixed << std::setprecision(2)
+        << "[vg]  leaf:          " << P.voxel_leaf * 100 << " cm\n"
+        << "[sor] Mean K:    " << P.sor_mean_k << "\n"
+        << "[sor] Stddev:     " << P.sor_stddev << "\n";
+
+
+    viewer->removeShape("Params_text");
+    viewer->addText(
+        oss.str(),
+        10, 200, 14, 1.0, 1.0, 1.0,
+        "Params_text"
+    );
+
+	auto t1 = clk::now();
+	std::ostringstream clk_oss;
+    clk_oss << "(2) Filter Times:\n"
+        << std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count() << "ms";
+	viewer->removeShape("2clk_delay");
+	viewer->addText(
+		clk_oss.str(),
+		750, 400, 12, 1.0, 1.0, 1.0,
+		"2clk_delay"
+	);
+}
+
+struct FilterParams {
+    float voxel_leaf;   // VoxelGrid leaf size (m)
+    int   sor_mean_k;   // SOR mean K
+    float sor_stddev;   // SOR stddev multiplier
+};
+void filterMergedCloudWithParams(
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud_in,
+    pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud_out,
+    const FilterParams& P)
+{
+    // 1) VoxelGrid ë‹¤ìš´ìƒ˜í”Œë§
+    pcl::VoxelGrid<pcl::PointXYZI> voxel;
+    voxel.setInputCloud(cloud_in);
+    voxel.setLeafSize(P.voxel_leaf, P.voxel_leaf, P.voxel_leaf);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_voxel(new pcl::PointCloud<pcl::PointXYZI>());
+    voxel.filter(*cloud_voxel);
+
+    // 2) StatisticalOutlierRemoval
+    pcl::StatisticalOutlierRemoval<pcl::PointXYZI> sor;
+    sor.setInputCloud(cloud_voxel);
+    sor.setMeanK(P.sor_mean_k);
+    sor.setStddevMulThresh(P.sor_stddev);
+    cloud_out.reset(new pcl::PointCloud<pcl::PointXYZI>());
+    sor.filter(*cloud_out);
+}
+
+bool pixelizeAndDetectCircles(
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud,
+    float minY, float maxY,
+    float minZ, float maxZ,
+    float meterPerPixel,
+    std::vector<cv::Vec3f>& outCircles,
+    pcl::visualization::PCLVisualizer::Ptr viewer = nullptr)
+{
+	using clk = std::chrono::high_resolution_clock;
+	auto t0 = clk::now();
+
+    // 1) ì˜ìƒ í¬ê¸° ê³„ì‚°
+    int imgW = static_cast<int>(std::ceil((maxY - minY) / meterPerPixel));
+    int imgH = static_cast<int>(std::ceil((maxZ - minZ) / meterPerPixel));
+    if (imgW <= 0 || imgH <= 0) return false;
+
+    // 2) 2D ì˜ìƒ ìƒì„±
+    cv::Mat img = cv::Mat::zeros(imgH, imgW, CV_8UC1);
+    for (const auto& p : cloud->points) {
+        int u = static_cast<int>((p.y - minY) / meterPerPixel);
+        int v = static_cast<int>((p.z - minZ) / meterPerPixel);
+        if (u < 0 || u >= imgW || v < 0 || v >= imgH) continue;
+        img.at<uchar>(imgH - 1 - v, u) = 255;
+    }
+
+	cv::Mat mop;
+	cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(21,21));
+    //cv::morphologyEx(img, mop, cv::MORPH_OPEN, kernel);
+	cv::morphologyEx(img, mop, cv::MORPH_CLOSE, kernel);
+
+    //cv::imshow("mop", mop);
+
+
+    int minRadius = int(0.20f / meterPerPixel);  // 40 (ë°˜ì§€ë¦„20cm)
+    int maxRadius = int(0.60f / meterPerPixel);  // 120 (ë°˜ì§€ë¦„ 60
+
+    // 4) Hough Circle ê²€ì¶œ
+    cv::HoughCircles(
+        mop,
+        outCircles,
+        cv::HOUGH_GRADIENT,
+        1.0,
+        minRadius * 1.5,  // ìµœì†Œ ì¤‘ì‹¬ ê°„ ê±°ë¦¬
+        100,         // Canny ìƒìœ„ ì„ê³„ê°’
+        20,          // ì› ê²€ì¶œ ì„ê³„ê°’
+        minRadius,  // ìµœì†Œ ë°˜ì§€ë¦„ (m->px)
+        maxRadius    // ìµœëŒ€ ë°˜ì§€ë¦„
+    );
+
+    // 5) ê²°ê³¼ í‘œì‹œ
+    cv::Mat color;
+    cv::cvtColor(img, color, cv::COLOR_GRAY2BGR);
+    for (const auto& c : outCircles) {
+        cv::Point center(cvRound(c[0]), cvRound(c[1]));
+        int radius = cvRound(c[2]);
+        cv::circle(color, center, radius, cv::Scalar(0, 255, 0), 2);
+        cv::circle(color, center, 2, cv::Scalar(0, 0, 255), -1);
+    }
+    //cv::imshow("Detected Circles", color);
+    //cv::waitKey(1);
+
+	auto t1 = clk::now();
+	std::ostringstream oss;
+	oss << "(3) Circle Detection Times:\n"
+		<< std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count() << "ms";
+	viewer->removeShape("3clk_delay");
+	viewer->addText(
+		oss.str(),
+		750, 375, 12, 1.0, 1.0, 1.0,
+		"3clk_delay"
+	);
+
+
+	// 6) ì› ê²€ì¶œ ê²°ê³¼ ë°˜í™˜
+	if (outCircles.empty()) return false;
+	return true;
+}
+
+
+float MeasureHeight(const pcl::PointCloud<pcl::PointXYZI>::Ptr& Load_cloud) {
+    if (!Load_cloud || Load_cloud->empty()) return -1.0f;
+
+
+    // 2) ë°€ì§‘ í´ëŸ¬ìŠ¤í„°ë§Œ ì¶”ì¶œ (Euclidean Clustering)
+    pcl::search::KdTree<pcl::PointXYZI>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZI>);
+    tree->setInputCloud(Load_cloud);
+    std::vector<pcl::PointIndices> clusters;
+    pcl::EuclideanClusterExtraction<pcl::PointXYZI> ec;
+    ec.setClusterTolerance(0.04f);      // 5cm ì´ë‚´ ì ë“¤ë§Œ ë¬¶ìŒ
+    ec.setMinClusterSize(30);          // ìµœì†Œ 100ì  ì´ìƒ
+    ec.setMaxClusterSize(100000);      // ìµœëŒ€ ì œí•œì€ í¬ê²Œ
+    ec.setSearchMethod(tree);
+    ec.setInputCloud(Load_cloud);
+    ec.extract(clusters);
+    if (clusters.empty()) return false;
+
+    // ì˜ˆ: ê°€ì¥ í° êµ°ì§‘ í•˜ë‚˜ë§Œ ì“¸ ê²½ìš°
+    auto largest = *std::max_element(clusters.begin(), clusters.end(),
+        [](auto& a, auto& b) { return a.indices.size() < b.indices.size(); });
+    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_dense(new pcl::PointCloud<pcl::PointXYZI>);
+    {
+        pcl::ExtractIndices<pcl::PointXYZI> ex;
+        pcl::PointIndices::Ptr idx(new pcl::PointIndices(largest));
+        ex.setInputCloud(Load_cloud);
+        ex.setIndices(idx);
+        ex.setNegative(false);
+        ex.filter(*cloud_dense);
+    }
+    float max_x = -std::numeric_limits<float>::infinity();
+    for (auto& pt : Load_cloud->points) max_x = std::max(max_x, pt.x);
+    return max_x * 1000.0f + fixed_ground_height * 1000.0f;    
+}
+
+bool computeDimensionsFromPlane(
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& plane_cloud,
+    bool circleDetected,
+    float& width_mm, float& depth_mm, float& height_mm,
+    pcl::visualization::PCLVisualizer::Ptr viewer = nullptr)
+{
+	using clk = std::chrono::high_resolution_clock;
+	auto t0 = clk::now();
+
+	if (!plane_cloud || plane_cloud->empty()) return false;
+
+    if (viewer) {
+        for (int i = 0; i < 4; ++i) {
+            viewer->removeShape("rect_edge" + std::to_string(i));
+            viewer->removeShape("obb_edge" + std::to_string(i));
+        }
+        viewer->removeShape("angle_text");
+        viewer->removeShape("dim_text");
+    } 
+
+    if (circleDetected) {
+        float min_y = std::numeric_limits<float>::max(), max_y = -min_y;
+        float min_z = std::numeric_limits<float>::max(), max_z = -min_z;
+        for (auto& p : plane_cloud->points) {
+            min_y = std::min(min_y, p.y);
+            max_y = std::max(max_y, p.y);
+            min_z = std::min(min_z, p.z);
+            max_z = std::max(max_z, p.z);
+        }
+        depth_mm = (max_y - min_y) * 1000.0f; // mm ë‹¨ìœ„
+        width_mm = (max_z - min_z) * 1000.0f; // mm ë‹¨ìœ„
+
+		
+        if (viewer) {
+            float plane_x = plane_cloud->points[0].x + 0.05f;
+            pcl::PointXYZ A(plane_x, min_y, min_z);
+            pcl::PointXYZ B(plane_x, max_y, min_z);
+            pcl::PointXYZ C(plane_x, max_y, max_z);
+            pcl::PointXYZ D(plane_x, min_y, max_z);
+            viewer->addLine(A, B, 1.0, 0.0, 0.0, "rect_edge0");
+            viewer->addLine(B, C, 1.0, 0.0, 0.0, "rect_edge1");
+            viewer->addLine(C, D, 1.0, 0.0, 0.0, "rect_edge2");
+            viewer->addLine(D, A, 1.0, 0.0, 0.0, "rect_edge3");
+        }
     }
     else {
-        rep->SetState(0);
-    }
-    // 2) ¹öÆ° À§Á¬
-    auto w = vtkSmartPointer<vtkButtonWidget>::New();
-    w->SetInteractor(iren);
-    w->SetCurrentRenderer(uiRen);
-    w->SetRepresentation(rep);
-    w->On();
+        // Convex Hull + OBB
+        pcl::PointCloud<pcl::PointXYZ>::Ptr pts2d(new pcl::PointCloud<pcl::PointXYZ>());
+        for (auto& p3 : plane_cloud->points) {
+            pts2d->push_back({ p3.y, p3.z, 0.0f });
+        }
+        pcl::ConvexHull<pcl::PointXYZ> hull;
+        hull.setDimension(2);
+        hull.setInputCloud(pts2d);
+        pcl::PointCloud<pcl::PointXYZ>::Ptr hull_pts(new pcl::PointCloud<pcl::PointXYZ>());
+        hull.reconstruct(*hull_pts);
+        if (hull_pts->size() < 3) return false;
 
-    if (flag_ptr) {
-        auto cb = vtkSmartPointer<ButtonCallback>::New();
-        cb->toggleFlag = flag_ptr;
-        cb->name = flagName;
-        w->AddObserver(vtkCommand::StateChangedEvent, cb);
+        std::vector<cv::Point2f> pts;
+        for (auto& p : hull_pts->points) pts.emplace_back(p.x, p.y);
+        cv::RotatedRect r = cv::minAreaRect(pts);
+        float angle_deg = r.angle;
+        cv::Point2f corner[4];
+        r.points(corner);
+        if (viewer) {
+            float plane_x = plane_cloud->points[0].x + 0.05f;
+            for (int i = 0; i < 4; ++i) {
+                auto A = corner[i], B = corner[(i + 1) % 4];
+                viewer->addLine(
+                    pcl::PointXYZ(plane_x, A.x, A.y),
+                    pcl::PointXYZ(plane_x, B.x, B.y),
+                    0, 1, 0, "obb_edge" + std::to_string(i)
+                );
+            }
+            viewer->addText("Angle: " + std::to_string(angle_deg) + u8" Â°", 10, 80, 14, 1, 1, 1, "angle_text");
+        }
+        if (std::abs(angle_deg) < 45) {
+            depth_mm = r.size.width * 1000.0f;
+            width_mm = r.size.height * 1000.0f;
+        }
+        else {
+            width_mm = r.size.width * 1000.0f;
+            depth_mm = r.size.height * 1000.0f;
+        }
     }
 
-    return w;
+    height_mm = MeasureHeight(plane_cloud);
+
+    if (viewer) {
+        // ê²°ê³¼ í…ìŠ¤íŠ¸
+        viewer->removeShape("dim_text");
+        std::ostringstream oss;
+        oss << "W: " << width_mm << " mm\n"
+            << "D: " << depth_mm << " mm\n"
+            << "H: " << height_mm << " mm";
+        viewer->addText(oss.str(), 10, 100, 16, 1, 1, 1, "dim_text");
+    }
+
+	auto t1 = clk::now();
+	std::ostringstream oss;
+	oss << "(4) Dimension Times:\n"
+		<< std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count() << "ms";
+	if (viewer) {
+		viewer->removeShape("4clk_delay");
+		viewer->addText(
+			oss.str(),
+			750, 350, 12, 1.0, 1.0, 1.0,
+			"4clk_delay"
+		);
+	}
+	// ê²°ê³¼ ë°˜í™˜
+	if (width_mm <= 0 || depth_mm <= 0 || height_mm <= 0) return false;
+
+	return true;
 }
 
-struct ReachCounterCallback : public vtkCommand {
-    static ReachCounterCallback* New() { return new ReachCounterCallback; }
-	WATAConfig* config = nullptr;
-    bool*   toggleFlag = nullptr;
-    float*  groundHeightPtr = nullptr;
-    vtkTextActor* heightTextActor = nullptr;
-    vtkButtonWidget* buttonWidget = nullptr;
-
-    void Execute(vtkObject*, unsigned long, void*) override {
-        config->flag_reach_off_counter = !config->flag_reach_off_counter;
-
-        float h = config->flag_reach_off_counter ? (config->reach_height / 1000.0f) : (config->counterbalance_height / 1000.0f);
-        *groundHeightPtr = h;
-
-        auto rep = static_cast<vtkTexturedButtonRepresentation2D*>(
-            buttonWidget->GetRepresentation());
-        rep->SetState(config->flag_reach_off_counter ? 1 : 0);
-
-        std::ostringstream ss;
-        ss << "Current Ground Height: " << h << "m";
-        heightTextActor->SetInput(ss.str().c_str());
-    }
-};
 
 
 
-struct ExitCallback : public vtkCommand {
-    static ExitCallback* New() { return new ExitCallback; }
-    pcl::visualization::PCLVisualizer* viewer = nullptr;
-    vtkRenderWindowInteractor* iren = nullptr;
 
-    void Execute(vtkObject*, unsigned long, void*) override {
-        // 1) VTK ÀÎÅÍ·¢ÅÍ Á¤Áö
-        if (iren) iren->TerminateApp();
-        // 2) PCLVisualizer ·çÇÁ Á¾·á
-        if (viewer) viewer->close();
-        // 3) Àü¿ª ¸®¼Ò½º ÇØÁ¦ (ÇÊ¿äÇÏ¸é)
-        LivoxLidarSdkUninit();
-        curl_global_cleanup();
-        std::exit(0);
-    }
-};
 
-struct RebootCallback : public vtkCommand {
-    static RebootCallback* New() { return new RebootCallback; }
-    vtkRenderWindowInteractor* iren{ nullptr };
-    pcl::visualization::PCLVisualizer* viewer{ nullptr };
+std::atomic<bool> tuningDone{ false };
+std::atomic<bool> tuningStarted{ false };
+std::atomic<size_t> tuningProgress{ 0 };    // ì§€ê¸ˆê¹Œì§€ ì²˜ë¦¬í•œ ì¡°í•© ìˆ˜
+size_t              tuningTotal = 1;      // ì „ì²´ ì¡°í•© ìˆ˜
+std::atomic<float>  bestLeaf{ 0.01f };
+std::atomic<int>    bestMeanK{ 50 };
+std::atomic<float>  bestStdDev{ 1.5f }; 
+std::atomic<float>  bestWpct{ std::numeric_limits<float>::infinity() };
+std::atomic<float>  bestDpct{ std::numeric_limits<float>::infinity() };
+// íŠœë‹ìš©
+void runTuningAsync(
+    pcl::PointCloud<pcl::PointXYZI>::Ptr merged,
+    float real_w, float real_d, float tol_pct,
+    const std::vector<float>& leafSizes,
+    const std::vector<int>& sorKs,
+    const std::vector<float>& sorThs)
+{
+    float localBestErrPct = std::numeric_limits<float>::infinity();
+    float localBestWpct = std::numeric_limits<float>::infinity();
+    float localBestDpct = std::numeric_limits<float>::infinity();
+    //FilterParams localBest = bestP;
 
-    void Execute(vtkObject*, unsigned long, void*) override {
+    // ì „ì²´ ì¡°í•© ê°œìˆ˜ ê³„ì‚°
+    tuningTotal = leafSizes.size() * sorKs.size() * sorThs.size();
+    tuningProgress = 0;
 
-        if (iren)   iren->TerminateApp(); 
-        if (viewer) viewer->close();
-        rebootRequested.store(true);
-    }
-};
+    int nL = leafSizes.size(), nK = sorKs.size(), nT = sorThs.size();
 
-struct ResetCallback : public vtkCommand {
-    static ResetCallback* New() { return new ResetCallback; }
-    WATAConfig* cfg = nullptr;
-    vtkSliderRepresentation2D* iterRep = nullptr;
-    vtkSliderRepresentation2D* meanRep = nullptr;
-    vtkSliderRepresentation2D* thrRep = nullptr;
-    vtkSliderRepresentation2D* yaw0Rep = nullptr;
-    vtkSliderRepresentation2D* yaw1Rep = nullptr;
-    vtkSliderRepresentation2D* pit0Rep = nullptr;
-    vtkSliderRepresentation2D* pit1Rep = nullptr;
-    pcl::visualization::PCLVisualizer* viewer = nullptr;
-    int     default_iter;
-    int     default_mean_k;
-    float   default_threshold;
-    FovCfg  default_fov0;
-    //FovCfg  default_fov1;
+    constexpr int REPEAT = 10; // ë°˜ë³µíšŸìˆ˜
 
-    void Execute(vtkObject*, unsigned long, void*) override {
-        // 1) WATAConfig º¹¿ø
-        cfg->iteration = default_iter;
-        cfg->mean_k = default_mean_k;
-        cfg->threshold = default_threshold;
-        // 2) ½½¶óÀÌ´õ UI º¹¿ø
-        iterRep->SetValue(default_iter);
-        meanRep->SetValue(default_mean_k);
-        thrRep->SetValue(default_threshold);
-        // 3) FOV ½½¶óÀÌ´õ º¹¿ø
-        yaw0Rep->SetValue(default_fov0.yaw_start);
-        yaw1Rep->SetValue(default_fov0.yaw_stop);
-		pit0Rep->SetValue(default_fov0.pitch_start);
-		pit1Rep->SetValue(default_fov0.pitch_stop);
-        //pit0Rep->SetValue(default_fov1.pitch_start);
-        //pit1Rep->SetValue(default_fov1.pitch_stop);
-        // 4) SDK ¿¡µµ ÇÑ¹ø ´õ º¸³»±â
-        SetLivoxLidarFovCfg0(g_lidar_handle.load(), &default_fov0, nullptr, nullptr);
-        //SetLivoxLidarFovCfg1(g_lidar_handle.load(), &default_fov1, nullptr, nullptr);
-        EnableLivoxLidarFov(g_lidar_handle.load(), 1, nullptr, nullptr);
-        // 5) Ä«¸Ş¶ó ¸®¼Â
-        viewer->resetCamera();
-    }
-};
+#pragma omp parallel for collapse(3) schedule(dynamic)
+    for (int idxL = 0; idxL < nL; ++idxL) {
+        for (int idxK = 0; idxK < nK; ++idxK) {
+            for (int idxT = 0; idxT < nT; ++idxT) {
 
-struct FovSliderCallback : public vtkCommand {
-    static FovSliderCallback* New() { return new FovSliderCallback; }
-    int field;                   // 0 = yaw_start, 1 = yaw_stop
-    vtkTextActor* infoText = nullptr;  // È­¸é ÅØ½ºÆ® ¾÷µ¥ÀÌÆ®¿ë
+                FilterParams P{
+                  leafSizes[idxL],
+                  sorKs[idxK],
+                  sorThs[idxT]
+                };
 
-    void Execute(vtkObject* caller, unsigned long, void*) override {
-        auto slider = static_cast<vtkSliderWidget*>(caller);
-        double v = static_cast<vtkSliderRepresentation*>(slider->GetRepresentation())->GetValue();
+                float sumErr = 0.f, sumW = 0.f, sumD = 0.f;
+                static thread_local pcl::PointCloud<pcl::PointXYZI>::Ptr tmp(new pcl::PointCloud<pcl::PointXYZI>());
+                for (int rep = 0; rep < REPEAT; ++rep) {
+                    tmp->clear();
+                    filterMergedCloudWithParams(merged, tmp, P);
+                    float w_mm, d_mm, h_mm;
+                    computeDimensionsFromPlane(tmp, false, w_mm, d_mm, h_mm, nullptr);
 
-        // yaw ¼³Á¤
-        if (field == 0)       fov_cfg0.yaw_start = v;
-        else if (field == 1)  fov_cfg0.yaw_stop = v;
-		else if (field == 2)  fov_cfg0.pitch_start = v;
-		else if (field == 3)  fov_cfg0.pitch_stop = v;
+                    float w_pct = real_w > 0 ? fabs(w_mm - real_w) / real_w * 100.0f : FLT_MAX;
+                    float d_pct = real_d > 0 ? fabs(d_mm - real_d) / real_d * 100.0f : FLT_MAX;
+                    float err_pct = std::max(w_pct, d_pct);
 
-        // SDK¿¡ ¹Ù·Î Àü¼Û (½Ç½Ã°£ ¸ğµåÀÏ ¶§¸¸)
-        uint32_t h = g_lidar_handle.load();
-        if (h) {
-            SetLivoxLidarFovCfg0(h, &fov_cfg0, nullptr, nullptr);
-            EnableLivoxLidarFov(h, 1, nullptr, nullptr);
-        }
+                    sumErr += err_pct;
+                    sumW += w_pct;
+                    sumD += d_pct;
+                }
 
-        // È­¸é ÅØ½ºÆ® °»½Å
-        if (infoText) {
-            std::ostringstream ss;
-            ss << "FOV yaw = [" << fov_cfg0.yaw_start
-                << ", " << fov_cfg0.yaw_stop << "]\npitch = ["
-                << fov_cfg0.pitch_start << ", " << fov_cfg0.pitch_stop << "]";
-            infoText->SetInput(ss.str().c_str());
+                float avgErr = sumErr / REPEAT;
+                float avgW = sumW / REPEAT;
+                float avgD = sumD / REPEAT;
+
+
+#pragma omp critical
+                {
+                    if (avgErr < localBestErrPct) {
+
+                        localBestErrPct = avgErr;
+                        localBestWpct = avgW;
+                        localBestDpct = avgD;
+                        //localBest = P;
+
+                        bestWpct.store(avgW, std::memory_order_relaxed);
+                        bestDpct.store(avgD, std::memory_order_relaxed);
+                        bestLeaf.store(P.voxel_leaf, std::memory_order_relaxed);
+                        bestMeanK.store(P.sor_mean_k, std::memory_order_relaxed);
+                        bestStdDev.store(P.sor_stddev, std::memory_order_relaxed);
+                    }
+                }
+
+                tuningProgress.fetch_add(1, std::memory_order_relaxed);
+            }
+            
         }
     }
-};
+    // 5) ì „ì—­ì— ìµœì¢… ê²°ê³¼ ì €ì¥
+    //bestP = localBest;
+    bestWpct = localBestWpct;
+    bestDpct = localBestDpct;
+    tuningDone = true;
+}
 
-struct SetFovButtonCallback : public vtkCommand {
-    static SetFovButtonCallback* New() { return new SetFovButtonCallback; }
 
-    void Execute(vtkObject*, unsigned long, void*) override {
-        uint32_t h = g_lidar_handle.load();
-        if (!h) return;
-        // ½ÇÁ¦ ¼¾¼­¿¡ ¼³Á¤ Àû¿ë
-        SetLivoxLidarFovCfg0(h, &fov_cfg0, nullptr, nullptr);
-        EnableLivoxLidarFov(h, 1, nullptr, nullptr);
-        std::cout << "[SetFOV] Applied yaw=["
-            << fov_cfg0.yaw_start << "," << fov_cfg0.yaw_stop << "]\n";
+
+// ë§¤ í”„ë ˆì„(ë˜ëŠ” ì¼ì • ê°„ê²©)ë§ˆë‹¤ í˜¸ì¶œ
+double GetCpuUsage() {
+    static ULONGLONG prevIdle = 0, prevKernel = 0, prevUser = 0;
+    FILETIME ftIdle, ftKernel, ftUser;
+    if (!GetSystemTimes(&ftIdle, &ftKernel, &ftUser)) {
+        return 0.0; // ì‹¤íŒ¨ ì‹œ 0% ë¦¬í„´
     }
-};
+    auto toULL = [](const FILETIME& ft) {
+        return (ULONGLONG(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+    };
+    ULONGLONG idle = toULL(ftIdle);
+    ULONGLONG kernel = toULL(ftKernel);
+    ULONGLONG user = toULL(ftUser);
+
+    // ì²« í˜¸ì¶œ ë•ŒëŠ” ì´ì „ ê°’(prev*)ì´ 0ì´ë¯€ë¡œ ì´ˆê¸°í™”ë§Œ í•˜ê³  0%
+    if (prevIdle == 0 && prevKernel == 0 && prevUser == 0) {
+        prevIdle = idle;
+        prevKernel = kernel;
+        prevUser = user;
+        return 0.0;
+    }
+
+    ULONGLONG idleDelta = idle - prevIdle;
+    ULONGLONG kernelDelta = kernel - prevKernel;
+    ULONGLONG userDelta = user - prevUser;
+    ULONGLONG totalDelta = kernelDelta + userDelta;
+
+    prevIdle = idle;
+    prevKernel = kernel;
+    prevUser = user;
+
+    double cpuPct = totalDelta
+        ? (double)(totalDelta - idleDelta) * 100.0 / double(totalDelta)
+        : 0.0;
+
+    // 0~100% ì‚¬ì´ë¡œ í´ë¨í”„
+    return std::clamp(cpuPct, 0.0, 100.0);
+}
+
+
+
+static std::string NormalizePath(const std::string& p) {
+    std::string out = p;
+    std::replace(out.begin(), out.end(), '\\', '/');
+    return out;
+}
+
+
+std::chrono::steady_clock::time_point last_frame_time = std::chrono::steady_clock::now();
+double fps = 0.0;
+
+std::chrono::steady_clock::time_point tuning_start;
+bool tuning_timer_started = false;
+
+std::vector<std::string> pcd_files;
+size_t pcd_index = 0;
 
 // ----------------------------------------------------------------------------
 // Main
 // ----------------------------------------------------------------------------
 int main(int argc, const char* argv[]) {
+    pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
+
     vtkOutputWindow::GetInstance()->PromptUserOff();
     vtkObject::GlobalWarningDisplayOff();
+
+    ShellExecute(NULL, "open", "updater.exe", NULL, NULL, SW_HIDE);
 
 
     std::cout << "Current working directory: "
         << std::filesystem::current_path() << std::endl;
 
-    curl_global_init(CURL_GLOBAL_ALL); // curl Àü¿ª ÃÊ±âÈ­ (ÇÁ·Î±×·¥ ½ÃÀÛ ½Ã ÇÑ¹ø È£Ãâ)
+    curl_global_init(CURL_GLOBAL_ALL); // curl ì „ì—­ ì´ˆê¸°í™” (í”„ë¡œê·¸ë¨ ì‹œì‘ ì‹œ í•œë²ˆ í˜¸ì¶œ)
 
     lastLidarTimeMillis.store(std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count());
 
+    long long now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    long long last_ms = lastLidarTimeMillis.load();
+
+    // ì˜ˆ: 3000ms (=3ì´ˆ) ì´ìƒ ë°ì´í„° ìˆ˜ì‹ ì´ ì—†ìœ¼ë©´ ëŠê¸´ ê²ƒìœ¼ë¡œ ë³¸ë‹¤.
+    bool lidar_receiving = (now_ms - last_ms < 3000);
 
 
-
-    // 1) ¼³Á¤ ·Îµå
+    // 1) ì„¤ì • ë¡œë“œ
     const std::string LIVOX_PATH = "config/config.json";
-    const std::string WATA_PATH = "config/dev_setting.json";
-    WATAConfig config = readConfigFromJson(WATA_PATH);
+    const std::string WATA_PATH = "config/devTEST_setting.json";
+    WATAConfig config = config::ReadConfig(WATA_PATH);
+	HostInfo host = config::ReadHostInfo(LIVOX_PATH);
 
     enableDetectPlaneYZ = config.flag_detect_plane_yz;
     enableLoadROI = config.flag_load_roi;
     enableRAWcloud = config.flag_raw_cloud;
     enableINTENSITY = config.flag_intensity;
-    enableDualEmit = config.flag_dual_emit;
+    enableHeightOnly = config.flag_height_only;
     onReachoffCounter = config.flag_reach_off_counter;
 	fixed_ground_height = onReachoffCounter ? config.reach_height/1000.0f : config.counterbalance_height/1000.0f;
     enableReplay = config.flag_replay;
     enableHeartBeat = config.flag_heart_beat;
+    enableVolume = config.flag_volume;
+    enableTuning = config.flag_tuning;
+
+    bool tuneAll = config.flag_tune_all_files;
 
     const int   default_iteration = config.iteration;
     const int   default_mean_k = config.mean_k;
     const float default_threshold = config.threshold;
     const FovCfg default_fov0 = fov_cfg0;   // = {0,360,0,0}
-    //const FovCfg default_fov1 = fov_cfg1;   // = {0,0,-2,52}
 
 
-    bool READ_PCD_FROM_FILE = config.read_file;
+    READ_PCD_FROM_FILE = config.read_file;
     bool SAVE_PCD_FROM_FILE = config.save_file;
     const std::string READ_PCD_FILE_NAME = config.read_file_name;
     const std::string SAVE_PCD_FILE_NAME = config.save_file_name;
@@ -1311,27 +1974,71 @@ int main(int argc, const char* argv[]) {
 
     if (enableHeartBeat) {
         std::thread heartbeatThread(heartbeatThreadFunction);
-        heartbeatThread.detach(); // ½º·¹µå¸¦ ºĞ¸®ÇÏ¿© µ¶¸³ÀûÀ¸·Î ½ÇÇà
+        heartbeatThread.detach(); // ìŠ¤ë ˆë“œë¥¼ ë¶„ë¦¬í•˜ì—¬ ë…ë¦½ì ìœ¼ë¡œ ì‹¤í–‰
     }
 
-    const float ANGLE_DEGREES = 0.0;
-    const float THETA = ANGLE_DEGREES * M_PI / 180.f;
-    const float COS_THETA = std::cos(THETA);
-    const float SIN_THETA = std::sin(THETA);
 
+    std::regex re_wl(R"(_w(\d+)_l(\d+))");
+    std::smatch m;
+    float real_w = 0.0f, real_d = 0.0f;
+    if (std::regex_search(READ_PCD_FILE_NAME, m, re_wl) && m.size() == 3) {
+        real_w = std::stof(m[1].str());  // w ë’¤ ìˆ«ì
+        real_d = std::stof(m[2].str());  // l ë’¤ ìˆ«ì
+    }
+    else {
+        // íŒŒì‹± ì‹¤íŒ¨ ì‹œ ê¸°ë³¸ê°’
+        real_w = 1000.0f;
+        real_d = 1000.0f;
+        std::cerr << "[WARN] Filename parsing failed: " << READ_PCD_FILE_NAME << std::endl;
+    }
+
+    if (enableTuning) {
+        if (tuneAll) {
+            const std::string dir = config.tune_folder;
+            for (auto& entry : std::filesystem::directory_iterator(dir)) {
+                if (entry.path().extension() == ".pcd")
+                    pcd_files.push_back(NormalizePath(entry.path().string()));
+            }
+            std::sort(pcd_files.begin(), pcd_files.end());
+            pcd_index = 0;
+        }
+        else {
+            pcd_files.clear();
+            pcd_files.push_back(NormalizePath(config.read_file_name));
+            pcd_index = 0;
+        }
+        READ_PCD_FROM_FILE = true;
+        V_start_process = true;
+        config.flag_volume = false;
+        config.flag_replay = true;
+    }
     if (READ_PCD_FROM_FILE) {
-        // ÆÄÀÏ¿¡¼­ PCD ·Îµå
-        std::cout << "Reading point cloud: " << READ_PCD_FILE_NAME << std::endl;
-        if (pcl::io::loadPCDFile<pcl::PointXYZI>(READ_PCD_FILE_NAME, *cloud_loaded) == -1) {
+        const std::string& filename = pcd_files.empty()
+            ? config.read_file_name    // íŠœë‹ êº¼ì§„ ì¼ë°˜ ì½ê¸°
+            : pcd_files[pcd_index];    // íŠœë‹ ëª¨ë“œ ì‹œ ì²« íŒŒì¼
+        std::cout << "Reading point cloud: " << filename << std::endl;
+        if (pcl::io::loadPCDFile<pcl::PointXYZI>(filename, *cloud_loaded) == -1) {
             PCL_ERROR("Could not read file\n");
             return -1;
         }
         std::cout << "[INFO] Loaded " << cloud_loaded->size()
-            << " points from " << READ_PCD_FILE_NAME << std::endl;
+            << " points from " << filename << std::endl;
         std::this_thread::sleep_for(std::chrono::seconds(1));
+
+        {
+            std::regex re_wl(R"(_w(\d+)_l(\d+))");
+            std::smatch m;
+            if (std::regex_search(READ_PCD_FILE_NAME, m, re_wl) && m.size() == 3) {
+                real_w = std::stof(m[1].str());
+                real_d = std::stof(m[2].str());
+            }
+            else {
+                real_w = real_d = 1000.0f; // ê¸°ë³¸
+            }
+        }
     }
     else {
-        // ½Ç½Ã°£ (Livox) ¸ğµå
+        // ì‹¤ì‹œê°„ (Livox) ëª¨ë“œ
         if (!LivoxLidarSdkInit(LIVOX_PATH.c_str())) {
             std::cerr << "[ERROR] Livox Init Failed\n";
             LivoxLidarSdkUninit();
@@ -1352,22 +2059,51 @@ int main(int argc, const char* argv[]) {
     subscriber.set(zmq::sockopt::subscribe, "LIS>MID360");
 
     // 4) Viewer
-    auto viewer = std::make_shared<pcl::visualization::PCLVisualizer>("Volume Measurement Program(v1.1.2)");
+    auto viewer = std::make_shared<pcl::visualization::PCLVisualizer>("Volume Measurement Program(v1.2.5)");
     /*
-    [Version Á¤¸®]   
-    - version 1.1 : ÃÊ±â ¸ğµ¨
+    [Version ì •ë¦¬]   
+    <ëª©í‘œ>:
+	* ver 1.1. ~ : ì„œë¹„ìŠ¤í–¥ í™˜ê²½ì„¸íŒ…(ì§€ê²Œì°¨ ì¢…ë¥˜, ë†’ì´ë§Œ/ëª¨ë‘ ì¸¡ì •) ê°„ì´ ì„¤ì •, ë¡œì§ê¸°ëŠ¥ ë²„íŠ¼, íŒŒë¼ë¯¸í„° ì‹¤ì‹œê°„ ì¡°ì •, IP ì •ë³´ ì¶œë ¥
+    * ver 1.2. ~ : ì‹ ê·œ ë¶€í”¼ì¸¡ì • ì•Œê³ ë¦¬ì¦˜ ì ìš©, ì˜¤ì°¨ ê°œì„  ë° ê³ ë„í™”
+
+    - version 1.1 : ì´ˆê¸° ëª¨ë¸
 	- version 1.1.1
-        + ¸®Ä¡ÇüvsÄ«¿îÅÍÇü ¿ÀÅä È¯°æ¼¼ÆÃ ±â´É Ãß°¡
-			1. dev_setting.json¿¡ "reachoffcounter": true/false ¿¡ µû¶ó Áö¸é ³ôÀÌ, ÃøÁ¤ ¹üÀ§ º¯°æ
-			2. ¸®Ä¡Çü, Ä«¿îÅÍÇü °¢°¢ "reach_height", "counterbalance_height" À¸·Î Áö¸é ³ôÀÌ .json ÆÄÀÏ·Î ¼³Á¤ °¡´É
-		+ ½Ç½Ã°£ ¸ğµå¿¡¼­ FoV ½½¶óÀÌ´õ·Î Yaw/Pitch Á¶Á¤ °¡´É
-            1. ½Ç½Ã°£ FoV ¼³Á¤ÇÒ ½Ã, ¶óÀÌ´Ù ¼³Á¤À¸·Î Àû¿ëµÇ¾î ´Ù½Ã ÇÁ·Î±×·¥ ÄÑµµ ¿¹Àü FoV À¯Áö (½½¶óÀÌ´õ·Î »õ·Î Á¶ÀıÇÒ ½Ã µğÆúÆ® °ªºÎÅÍ ½ÃÀÛ)
-			2. ÇöÀç·Î¼± ½Ç½Ã°£ ¸ğµå¿¡¼­¸¸ Àû¿ë °¡´É
+        + ë¦¬ì¹˜í˜•vsì¹´ìš´í„°í˜• ì˜¤í†  í™˜ê²½ì„¸íŒ… ê¸°ëŠ¥ ì¶”ê°€
+			1. dev_setting.jsonì— "reachoffcounter": true/false ì— ë”°ë¼ ì§€ë©´ ë†’ì´, ì¸¡ì • ë²”ìœ„ ë³€ê²½
+			2. ë¦¬ì¹˜í˜•, ì¹´ìš´í„°í˜• ê°ê° "reach_height", "counterbalance_height" ìœ¼ë¡œ ì§€ë©´ ë†’ì´ .json íŒŒì¼ë¡œ ì„¤ì • ê°€ëŠ¥
+		+ ì‹¤ì‹œê°„ ëª¨ë“œì—ì„œ FoV ìŠ¬ë¼ì´ë”ë¡œ Yaw/Pitch ì¡°ì • ê°€ëŠ¥
+            1. ì‹¤ì‹œê°„ FoV ì„¤ì •í•  ì‹œ, ë¼ì´ë‹¤ ì„¤ì •ìœ¼ë¡œ ì ìš©ë˜ì–´ ë‹¤ì‹œ í”„ë¡œê·¸ë¨ ì¼œë„ ì˜ˆì „ FoV ìœ ì§€ (ìŠ¬ë¼ì´ë”ë¡œ ìƒˆë¡œ ì¡°ì ˆí•  ì‹œ ë””í´íŠ¸ ê°’ë¶€í„° ì‹œì‘)
+			2. í˜„ì¬ë¡œì„  ì‹¤ì‹œê°„ ëª¨ë“œì—ì„œë§Œ ì ìš© ê°€ëŠ¥
     - version 1.1.2
-        + save ¸ğµå½Ã ½Ç½Ã°£ .pcdÆÄÀÏ »ı¼º ¹× ÀúÀå (ÀÌÀü¿£ ·çÇÁ Á¾·á ÈÄ ÀúÀå, vtk ¹× À©µµ¿ì Á¾·á ¹öÆ° Å¬¸¯½Ã ·çÇÁ ¹ş¾î³ª¼­ ÀúÀåÀÌ ¾ÈµÆ¾úÀ½)
-        + Fov ±âº»°ª Á¶Á¤ (pitch: -9~52) -> ½ÇÁ¦·Ğ -9 ¾Æ´Ñ -7 Àû¿ëµÇ°ÚÁö¸¸ sdk viewer¿¡¼± -9±îÁö µÇ±æ·¡ Àû¿ë½ÃÅ´
-        + 
+        + save ëª¨ë“œì‹œ ì‹¤ì‹œê°„ .pcdíŒŒì¼ ìƒì„± ë° ì €ì¥ (ì´ì „ì—” ë£¨í”„ ì¢…ë£Œ í›„ ì €ì¥, vtk ë° ìœˆë„ìš° ì¢…ë£Œ ë²„íŠ¼ í´ë¦­ì‹œ ë£¨í”„ ë²—ì–´ë‚˜ì„œ ì €ì¥ì´ ì•ˆëì—ˆìŒ)
+        + Fov ê¸°ë³¸ê°’ ì¡°ì • (pitch: -9~52) -> ì‹¤ì œë¡  -9 ì•„ë‹Œ -7 ì ìš©ë˜ê² ì§€ë§Œ sdk viewerì—ì„  -9ê¹Œì§€ ë˜ê¸¸ë˜ ì ìš©ì‹œí‚´
+    - version 1.1.3
+        + dual emit ë²„íŠ¼ ë¹¼ê³  ë†’ì´ë§Œ ì¸¡ì •(height only)ì™€ ëª¨ë‘ ì¸¡ì •(all) ë²„íŠ¼ ì¶”ê°€
+        + YZ on/off ë²„íŠ¼ í´ë¦­ ì‹œ, ë·°ì–´ì— pcd ì•ˆë³´ì´ê²Œ ìˆ˜ì • (ì†ë„ í–¥ìƒ)
+		+ lidar ip ë° host ip ì •ë³´ ì¶œë ¥
     
+    - version 1.2.0
+		+ ì‹ ê·œ ë¶€í”¼ì¸¡ì • ì•Œê³ ë¦¬ì¦˜ ì¶”ê°€(Chull, cv::minAreaRect, OBB ë“±)
+    - version 1.2.1
+        + vtk_ui, config ëª¨ë“ˆí™”
+    - version 1.2.2
+		+ í¬ì¸íŠ¸ ëˆ„ì  ë° í•„í„°ë§ ê¸°ëŠ¥ ì¶”ê°€ (accumulatePlaneClusters, filterMergedCloud)
+		+ ì› ê²€ì¶œ ê¸°ëŠ¥ ê°œì„ (pixelizeAndDetectCircles)
+		+ ë¶€í”¼ ì¸¡ì • ê¸°ëŠ¥ ê°œì„ (computeDimensionsFromPlane)
+    - version 1.2.3
+		+ íŠœë‹ ê¸°ëŠ¥ ì¶”ê°€ (runTuningAsync)
+        + ì¸¡ì • ì‹œê°„ í‘œì‹œ
+        + " ì ì¬ë¬¼ ë†’ì´ + ì  ê°œìˆ˜ " ë¡œ ìµœì  íŒŒë¼ë¯¸í„° ì¡°í•© ì „ë‹¬ (ë‹¤ì–‘í•œ í˜•ìƒì— ëŒ€í•œ íŠœë‹ì„ ìœ„í•´)
+    - version 1.2.4
+        + fps, cpuì‚¬ìš©ëŸ‰ í‘œì‹œ
+        + í´ëŸ¬ìŠ¤í„°ë§ ê³„ì‚° ì‹œê°„ ì¤„ì„ (clustertol: 0.10f -> 0.4f ì •ë„ë¡œ ë‚®ì¶”ë©´ ë°˜ê²½ ì¢ì€ ì˜ì—­ì—ì„œ ì´ì›ƒ ì  ì°¾ê¸°, ë„“ìœ¼ë©´ ë” ë§ì€ ì ì„ ì°¾ì•„ë²„ë¦¼)
+        + ìµœì  íŒŒë¼ë¯¸í„° íŠœë‹(ëœë¤ ìŠ¤ìºë‹ìœ¼ë¡œ ì¸í•´ ìµœì ì¡°í•©ì´ì–´ë„ ëœë¤ ì˜¤ì°¨ ë°œìƒ, ìµœì  íŒŒë¼ë¯¸í„° ì¡°í•©ì´ 10ë²ˆ ì¸¡ì •ì‹œ ì˜¤ì°¨ìœ¨ ì ì„ë•Œë§Œ ê²°ê³¼ ì¶œë ¥)
+        + íŠœë‹ ë‚¨ì€ ì˜ˆìƒ ì‹œê°„ ì¶œë ¥
+    - version 1.2.5
+        + ìµœì  íŒŒë¼ë¯¸í„° íŠœë‹ ê°œì„ 
+			1. ê¸°ì¡´ì—” í˜„ì¬ .pcdíŒŒì¼ì—ì„œ íŒŒì¼ëª…ì˜ wì˜†ì˜ ìˆ«ìë¥¼ ì‹¤ì œ ë„ˆë¹„(real_width), lì˜†ì˜ ìˆ«ìë¥¼ ì‹¤ì œ ê¹Šì´(real_depth)ë¡œ ì¸ì‹í–ˆìŒ
+            2. ë”°ë¼ì„œ í˜„ì¬ .pcdíŒŒì¼ì—ì„œë§Œ ìµœì  íŒŒë¼ë¯¸í„° ì¡°í•©ì„ ì¶”ì¶œí•¨ + 2400ê°œ ê²½ìš°ì˜ ìˆ˜ ì¡°í•©ê³¼ 10íšŒ ê·¸ ì¡°í•©ìœ¼ë¡œ ë°˜ë³µí•´ ê°€ì¥ í‰ê·  ì˜¤ì°¨ìœ¨ì´ ì ì—ˆë˜ ì¡°í•© ì¶”ì¶œ ë°©ì‹
+			3. ì´ì œëŠ” í´ë” ë‚´ì— ìˆëŠ” ëª¨ë“  .pcdíŒŒì¼ì„ ìˆ˜ë™ìœ¼ë¡œ ìˆ˜ì •í•˜ê³  ê»ë‹¤ í‚¤ë©´ì„œ ì¡°ì‘í•  í•„ìš” ì—†ì´, ì „ë¶€ ìë™ìœ¼ë¡œ ìµœì  ì¡°í•©ê³¼ ì˜¤ì°¨ìœ¨ ë“±ì„ ì¶œë ¥í•œ "tuning_result.csv" íŒŒì¼ì„ ìƒì„±í•¨
 
 
 
@@ -1380,481 +2116,128 @@ int main(int argc, const char* argv[]) {
     viewer->setBackgroundColor(0.1, 0.1, 0.1);
     viewer->setCameraPosition(4.14367, 5.29453, -3.91817, 0.946026, -0.261667, 0.191218);
 
-    int previous_pallet_index = 0;
-
     viewer->registerKeyboardCallback(keyboardEventOccurred, (void*)viewer.get());
-
 
     x_lengths.clear();
     y_lengths.clear();
     z_lengths.clear();
 
-    // V_start_process »óÅÂ ÅØ½ºÆ® ÃÊ±âÈ­
+    // V_start_process ìƒíƒœ í…ìŠ¤íŠ¸ ì´ˆê¸°í™”
     std::string initial_status = "V_start_process: " + std::string(V_start_process ? "True" : "False");
-    viewer->addText(initial_status, 20, 630, 20, 1, 1, 1, "v_start_process_text");
+    viewer->addText(initial_status, 20, 530, 20, 1, 1, 1, "v_start_process_text");
 
 
 
-    // Àü¿ª º¯¼ö ¶Ç´Â ¸ŞÀÎ ·çÇÁ »ó´Ü¿¡ Ãß°¡
+    // ì „ì—­ ë³€ìˆ˜ ë˜ëŠ” ë©”ì¸ ë£¨í”„ ìƒë‹¨ì— ì¶”ê°€
     bool previous_V_start_process = V_start_process;
 
-    /*
-    ¹öÆ° (on/off)
-    - ÀûÀç¹° roi ¤·
-    - cloud_pcd (raw Æ÷ÀÎÆ®) ¤·
-    - detectPlaneYZ ¤·
-    - °¡´ÉÇÏ¸é intensity ¤·
-
-    ½½¶óÀÌ´õ Á¶Àı (ÆÄ¶ó¹ÌÅÍ °ª, roi ¹üÀ§ µî)
-    - iteration ¤·
-
-    - mean_k ¤·
-    - threshold ¤·
-
-    - height_threshold
-
-	- ¶óÀÌ´Ù FPS (±âº»°ª:10Hz->100,1000Hz±îÁö Á¶Àı°¡´ÉÇÏ°Ô)
-
-
-    - roi
-    - roi_y_start
-    - roi_y_end
-    - roi_z_start
-    - roi_z_end
-    - roi_angle
-    - V_x_start
-    - v_x_end
-
-
-
-    */
-
-
-
-
-
-
-    // 1) RenderWindow ¼¼ÆÃ
-    vtkRenderWindow* rw = viewer->getRenderWindow();
-
-	rw->SetSize(1280, 720);      // À©µµ¿ì Å©±â
-    rw->SetAlphaBitPlanes(1);   // ¾ËÆÄ Ã¤³Î Çã¿ë
-    rw->SetMultiSamples(0);     // ¸ÖÆ¼»ùÇÃ¸µ ÇØÁ¦
-    rw->SetNumberOfLayers(3);
-
-    // 2) ÁÂÃø(0.0~0.66) ¸ŞÀÎ 3D ·»´õ·¯
-    auto mainRen = viewer->getRendererCollection()->GetFirstRenderer();
-    mainRen->SetViewport(0.0, 0.0, 0.75, 1.0);
-    mainRen->SetLayer(0);
-
-    // 3) ¿ìÃø(0.66~1.0) UI Àü¿ë ·»´õ·¯
-    vtkSmartPointer<vtkRenderer> uiRen = vtkSmartPointer<vtkRenderer>::New();
-    uiRen->SetViewport(0.75, 0.0, 1.0, 1.0);
-    uiRen->InteractiveOff();
-    uiRen->SetLayer(1);
-    rw->AddRenderer(uiRen);
-
-
-    vtkSmartPointer<vtkTextActor> devPanel = vtkSmartPointer<vtkTextActor>::New();
-	devPanel->GetTextProperty()->SetFontSize(18);
-    devPanel->GetTextProperty()->SetColor(1.0, 1.0, 1.0);
-    devPanel->GetTextProperty()->SetBackgroundColor(0.0, 0.0, 0.0);
-    devPanel->GetTextProperty()->SetBackgroundOpacity(0.6);
+    auto rw = viewer->getRenderWindow();
+    auto iren = rw->GetInteractor();     
     
-    devPanel->SetInput("");
-	devPanel->SetPosition(770, 10);
-    mainRen->AddActor2D(devPanel);
-
-    vtkSmartPointer<vtkTextActor> StatusPanel = vtkSmartPointer<vtkTextActor>::New();
-	StatusPanel->GetTextProperty()->SetFontSize(16);
-	StatusPanel->GetTextProperty()->SetColor(1.0, 1.0, 1.0);
-	StatusPanel->GetTextProperty()->SetBackgroundColor(0.0, 0.0, 0.0);
-	StatusPanel->GetTextProperty()->SetBackgroundOpacity(0.6);
-    mainRen->AddActor2D(StatusPanel);
-
-
-
-    vtkNew<vtkRenderer> logoRen;
-    logoRen->SetLayer(2);
-    logoRen->InteractiveOff();
-    logoRen->SetViewport(0.00, 0.00, 0.10, 0.10);
-    logoRen->SetBackgroundAlpha(0.0);
-    rw->AddRenderer(logoRen);
-
-    // 3) PNG ¸®´õ·Î ·Î°í ÀÌ¹ÌÁö ·Îµå
-    vtkNew<vtkPNGReader> logoReader;
-    logoReader->SetFileName("icons/logo.png");
-    logoReader->Update();
-
-    vtkNew<vtkImageSliceMapper> sliceMapper;
-    sliceMapper->SetInputConnection(logoReader->GetOutputPort());
-
-    vtkNew<vtkImageSlice> slice;
-    slice->SetMapper(sliceMapper);
-
-    logoRen->AddViewProp(slice);
+    vtk_ui::UIManager uiMgr(
+        viewer,
+        iren,
+        config,
+        fixed_ground_height,
+        heightCalibration_mode,
+        onReachoffCounter,
+		is_paused,
+        enableINTENSITY
+    );
+    uiMgr.Setup();
 
 
-
-
-
-    uiRen->SetPreserveColorBuffer(false);
-    uiRen->SetPreserveDepthBuffer(false);
-
-    // 4) ÀÎÅÍ·¢ÅÍ
-    vtkRenderWindowInteractor* iren = rw->GetInteractor();
-
-
-
-
-// ----------------------[¹öÆ°]----------------------
-
-    // À©µµ¿ì Å©±â ¹Ş¾Æ¿À±â
-    int* winSize = rw->GetSize();
-    constexpr int ICON_PX = 128;
-
-    // ¹öÆ° Á¤º¸¸¸ Á¤ÀÇ
-    struct BtnInfo {
-        std::string off, on;
-        double x_norm, y_norm;
-        bool* flag;
-        std::string name;
-    };
-
-    vtkSmartPointer<vtkTextActor> currentGroundText = vtkSmartPointer<vtkTextActor>::New();
-    currentGroundText->GetTextProperty()->SetFontSize(16);
-    currentGroundText->SetPosition(20, 660);
-    uiRen->AddActor2D(currentGroundText);
-
-    currentGroundText->SetInput(
-        ("Current Ground Height: " + std::to_string(fixed_ground_height) + "m")
-        .c_str());
-
-
-    std::vector<BtnInfo> btns = {
-        { "icons/icon_yz_off_black_filled.png",   "icons/icon_yz_on_black_filled.png",   0.00, 0.95, &config.flag_detect_plane_yz , "detectPlaneYZ"},
-        { "icons/icon_roi_off_black_filled.png",  "icons/icon_roi_on_black_filled.png",  0.05, 0.95, &config.flag_load_roi, "LoadROI"},
-        { "icons/icon_raw_off_black_filled (2).png",  "icons/icon_raw_on_black_filled.png",  0.10, 0.95, &config.flag_raw_cloud , "RAWcloud"},
-        { "icons/icon_intensity_off_reflection.png","icons/icon_intensity_on_reflection.png",0.15,0.95, &enableINTENSITY     , "intesity"},
-        { "icons/icon_dual_emit_off_black_filled.png","icons/icon_dual_emit_on_black_filled.png",0.00,0.861,&config.flag_dual_emit , "DualEmit"},
-        { "icons/icon_forklift_counter.png",       "icons/icon_forklift_reach.png",       0.15, 0.861, &onReachoffCounter, "Reach <-> CounterBalace"},
-        { "icons/icon_play.png",                   "icons/icon_stop.png",                 0.05, 0.861, &is_paused , "Stop or Play"},
-        { "icons/icon_loop_off_black_filled.png",  "icons/icon_loop_on_black_filled.png", 0.10, 0.861, &config.flag_replay , "Replay"},
-        { "icons/icon_heartbeat_off_black_filled.png",  "icons/icon_heartbeat_on_black_filled.png", 0.00, 0.772,& config.flag_heart_beat , "HeartBeat" }
-    };
-    int reachBtnIndex = 0;
-    for (int i = 0; i < btns.size(); ++i) {
-        if (btns[i].name == "Reach <-> CounterBalace") {
-            reachBtnIndex = i;
-            break;
-        }
+    float roiVolXMin = -fixed_ground_height + 0.18f;
+    float roiVolXMax = roiVolXMin + 1.9f;
+    float roiVolYMin = 0.0f;
+    float roiVolYMax = 0.0f;
+    float roiVolZMin = 0.0f;
+    float roiVolZMax = 0.0f;
+    if (config.flag_height_only) {
+        roiVolYMin = config.flag_reach_off_counter ? -1.65f : -1.30f; // ì¹´ìš´í„° ê¹Šì´ì¸¡ì •ë²”ìœ„: 70cm
+        roiVolYMax = config.flag_reach_off_counter ? -0.42f : -0.20f;
+        roiVolZMin = config.flag_reach_off_counter ? -0.20f : -0.10f; // ì¹´ìš´í„° ë„ˆë¹„ì¸¡ì •ë²”ìœ„: 1.1m
+        roiVolZMax = config.flag_reach_off_counter ? 1.20f : 1.0f;
     }
-    std::vector<vtkSmartPointer<vtkButtonWidget>> buttonWidgets;
-
-
-    // ·çÇÁ ÇÑ ¹ø¿¡ ¸ğµÎ »ı¼º
-    for (auto& bi : btns) {
-        double x0 = winSize[0] * bi.x_norm;
-        double x1 = x0 + ICON_PX;
-        double y1 = winSize[1] * bi.y_norm;
-        double y0 = y1 - ICON_PX;
-        double bnds[6] = { x0, x1, y0, y1, 0.0, 0.0 };
-        auto btn = MakeButton(iren, uiRen, bi.off, bi.on, bnds, bi.flag, bi.name);
-        buttonWidgets.push_back(btn);
+    else {
+        roiVolYMin = config.flag_reach_off_counter ? -1.65f : -1.40f;
+        roiVolYMax = config.flag_reach_off_counter ? -0.42f : -0.20f;
+        roiVolZMin = config.flag_reach_off_counter ? -0.20f : -0.25f;
+        roiVolZMax = config.flag_reach_off_counter ? 1.20f : 1.25f;
     }
 
-    auto reachCb = vtkSmartPointer<ReachCounterCallback>::New();
-    reachCb->config = &config;
-    reachCb->toggleFlag = &onReachoffCounter;
-    reachCb->groundHeightPtr = &fixed_ground_height;
-    reachCb->heightTextActor = currentGroundText.Get();
-    reachCb->buttonWidget = buttonWidgets[reachBtnIndex].Get();
-    buttonWidgets[reachBtnIndex]
-        ->AddObserver(vtkCommand::StateChangedEvent, reachCb);
 
 
-    auto exitRep = vtkSmartPointer<vtkTexturedButtonRepresentation2D>::New();
-    exitRep->SetNumberOfStates(1);
-    exitRep->SetButtonTexture(0, LoadPNG("icons/exit.png"));  // exit.png ÇÏ³ª¸¸
-	double exit_x0 = winSize[0] * 0.20;
-	double exit_x1 = exit_x0 + 128;
-	double exit_y1 = winSize[1] * 1.05;
-	double exit_y0 = exit_y1 - 64;
-	double exit_bnds[6] = { exit_x0, exit_x1, exit_y0, exit_y1, 0.0, 0.0 };
-    exitRep->PlaceWidget(exit_bnds);  // bnds ´Â ¿øÇÏ´Â À§Ä¡/Å©±â·Î ¼³Á¤ÇÑ double[6]
-    exitRep->SetRenderer(uiRen);
 
-    // ¹öÆ° À§Á¬ »ı¼º
-    auto exitBtn = vtkSmartPointer<vtkButtonWidget>::New();
-    exitBtn->SetInteractor(iren);
-    exitBtn->SetCurrentRenderer(uiRen);
-    exitBtn->SetRepresentation(exitRep);
-    exitBtn->On();
-
-    // Äİ¹é ¿¬°á
-    auto cbExit = vtkSmartPointer<ExitCallback>::New();
-    cbExit->iren = iren;
-    cbExit->viewer = viewer.get();
-    exitBtn->AddObserver(vtkCommand::StateChangedEvent, cbExit);
-
-
-    // 2) Reboot ¹öÆ° Ç¥Çö »ı¼º
-    auto rebootRep = vtkSmartPointer<vtkTexturedButtonRepresentation2D>::New();
-    rebootRep->SetNumberOfStates(1);
-    rebootRep->SetButtonTexture(0, LoadPNG("icons/reboot.png"));  // ¾ÆÀÌÄÜ ÆÄÀÏ
-    // È­¸é ¿ìÃø ÇÏ´Ü ¾îµò°¡ Àû´çÈ÷ ¹èÄ¡
-    double bx0 = winSize[0] * 0.124;
-    double bx1 = bx0 + 128;
-    double by1 = winSize[1] * 1.05;
-    double by0 = by1 - 64;
-    double bnds[6] = { bx0, bx1, by0, by1, 0, 0 };
-    rebootRep->PlaceWidget(bnds);
-    rebootRep->SetRenderer(uiRen);
-
-    // 3) Reboot ¹öÆ° À§Á¬ »ı¼º¡¤µî·Ï
-    auto rebootBtn = vtkSmartPointer<vtkButtonWidget>::New();
-    rebootBtn->SetInteractor(iren);
-    rebootBtn->SetCurrentRenderer(uiRen);
-    rebootBtn->SetRepresentation(rebootRep);
-    rebootBtn->On();
-
-    // 4) Äİ¹é ´Ş±â
-    auto cbReboot = vtkSmartPointer<RebootCallback>::New();
-    cbReboot->iren = iren;
-    cbReboot->viewer = viewer.get();
-
-    rebootBtn->AddObserver(vtkCommand::StateChangedEvent, cbReboot);
+    //std::deque<pcl::PointCloud<pcl::PointXYZI>::Ptr> buf;
+    float meterPerPixel = 0.005;
+    int bufferSize = 4;
+    pcl::PointCloud<pcl::PointXYZI>::Ptr merged(new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZI>);
 
 
 
 
 
- //------------------------[½½¶óÀÌ´õ]--------------------------
 
-    //-------------------------[iteration]--------------------------
-    vtkSmartPointer<vtkSliderRepresentation2D> iteration_sliderRep =
-        vtkSmartPointer<vtkSliderRepresentation2D>::New();
-    iteration_sliderRep->SetMinimumValue(250);
-    iteration_sliderRep->SetMaximumValue(1000);
-    iteration_sliderRep->SetValue(config.iteration);
-    iteration_sliderRep->SetTitleText("iteration");
-	iteration_sliderRep->SetEndCapLength(0.01);
-	iteration_sliderRep->SetEndCapWidth(0.01);
-    iteration_sliderRep->GetPoint1Coordinate()->SetCoordinateSystemToNormalizedDisplay();
-    iteration_sliderRep->GetPoint1Coordinate()->SetValue(0.05, 0.55);
-    iteration_sliderRep->GetPoint2Coordinate()->SetCoordinateSystemToNormalizedDisplay();
-    iteration_sliderRep->GetPoint2Coordinate()->SetValue(0.20, 0.55);
-    iteration_sliderRep->GetSliderProperty()->SetColor(1.0, 0.0, 0.0);
-    iteration_sliderRep->GetSelectedProperty()->SetColor(1.0, 1.0, 0.0);
-    iteration_sliderRep->SetTitleHeight(0.02);
-    iteration_sliderRep->SetLabelHeight(0.015);
-    iteration_sliderRep->SetSliderLength(0.03);
-    iteration_sliderRep->SetSliderWidth(0.015);
-    iteration_sliderRep->SetTubeWidth(0.005);
-    iteration_sliderRep->SetRenderer(uiRen);
-
-    vtkSmartPointer<vtkSliderWidget> iteration_sliderWidget =
-        vtkSmartPointer<vtkSliderWidget>::New();
-    iteration_sliderWidget->SetInteractor(iren);
-    iteration_sliderWidget->SetCurrentRenderer(uiRen);
-    iteration_sliderWidget->SetRepresentation(iteration_sliderRep);
-    iteration_sliderWidget->SetAnimationModeToAnimate();
-    iteration_sliderWidget->KeyPressActivationOff();
-    iteration_sliderWidget->SetEnabled(1);
-
-    //iteration_sliderWidget->On();
-    auto iteration_scb = vtkSmartPointer<SliderCallback>::New();
-    iteration_scb->iteration_ptr = &config;
-    iteration_sliderWidget->AddObserver(vtkCommand::InteractionEvent, iteration_scb);
-
-
-	//-------------------------[mean_k]--------------------------
-    vtkSmartPointer<vtkSliderRepresentation2D> mean_k_sliderRep =
-        vtkSmartPointer<vtkSliderRepresentation2D>::New();
-    mean_k_sliderRep->SetMinimumValue(1);
-    mean_k_sliderRep->SetMaximumValue(100);
-    mean_k_sliderRep->SetValue(config.mean_k);
-    mean_k_sliderRep->SetTitleText("mean_k");
-	mean_k_sliderRep->SetEndCapLength(0.01);
-	mean_k_sliderRep->SetEndCapWidth(0.01);
-    mean_k_sliderRep->GetPoint1Coordinate()->SetCoordinateSystemToNormalizedDisplay();
-    mean_k_sliderRep->GetPoint1Coordinate()->SetValue(0.05, 0.45);
-    mean_k_sliderRep->GetPoint2Coordinate()->SetCoordinateSystemToNormalizedDisplay();
-    mean_k_sliderRep->GetPoint2Coordinate()->SetValue(0.20, 0.45);
-	mean_k_sliderRep->GetSliderProperty()->SetColor(1.0, 0.0, 0.0);
-	mean_k_sliderRep->GetSelectedProperty()->SetColor(1.0, 1.0, 0.0);
-	mean_k_sliderRep->SetTitleHeight(0.02);
-	mean_k_sliderRep->SetLabelHeight(0.015);
-	mean_k_sliderRep->SetSliderLength(0.03);
-	mean_k_sliderRep->SetSliderWidth(0.015);
-    mean_k_sliderRep->SetTubeWidth(0.005);
-    mean_k_sliderRep->SetRenderer(uiRen);
-
-    vtkSmartPointer<vtkSliderWidget> mean_k_sliderWidget =
-        vtkSmartPointer<vtkSliderWidget>::New();
-    mean_k_sliderWidget->SetInteractor(iren);
-    mean_k_sliderWidget->SetCurrentRenderer(uiRen);
-    mean_k_sliderWidget->SetRepresentation(mean_k_sliderRep);
-    mean_k_sliderWidget->SetAnimationModeToAnimate();
-    mean_k_sliderWidget->KeyPressActivationOff();
-    mean_k_sliderWidget->SetEnabled(1);
-
-    //sliderWidget->On();
-    vtkSmartPointer<SliderCallback> scb = vtkSmartPointer<SliderCallback>::New();
-    scb->meank_ptr = &config;
-    mean_k_sliderWidget->AddObserver(vtkCommand::InteractionEvent, scb);
-
-	// -------------------------[threshold]--------------------------
-	vtkSmartPointer<vtkSliderRepresentation2D> threshold_sliderRep =
-		vtkSmartPointer<vtkSliderRepresentation2D>::New();
-	threshold_sliderRep->SetMinimumValue(0.5);
-	threshold_sliderRep->SetMaximumValue(2.5);
-	threshold_sliderRep->SetValue(config.threshold);
-	threshold_sliderRep->SetTitleText("threshold");
-	threshold_sliderRep->SetEndCapLength(0.01);
-	threshold_sliderRep->SetEndCapWidth(0.01);
-	threshold_sliderRep->GetPoint1Coordinate()->SetCoordinateSystemToNormalizedDisplay();
-	threshold_sliderRep->GetPoint1Coordinate()->SetValue(0.05, 0.35);
-	threshold_sliderRep->GetPoint2Coordinate()->SetCoordinateSystemToNormalizedDisplay();
-	threshold_sliderRep->GetPoint2Coordinate()->SetValue(0.20, 0.35);
-	threshold_sliderRep->GetSliderProperty()->SetColor(1.0, 0.0, 0.0);
-	threshold_sliderRep->GetSelectedProperty()->SetColor(1.0, 1.0, 0.0);
-	threshold_sliderRep->SetTitleHeight(0.02);
-	threshold_sliderRep->SetLabelHeight(0.015);
-	threshold_sliderRep->SetSliderLength(0.03);
-	threshold_sliderRep->SetSliderWidth(0.015);
-	threshold_sliderRep->SetTubeWidth(0.005);
-	threshold_sliderRep->SetRenderer(uiRen);
-	vtkSmartPointer<vtkSliderWidget> threshold_sliderWidget =
-		vtkSmartPointer<vtkSliderWidget>::New();
-	threshold_sliderWidget->SetInteractor(iren);
-	threshold_sliderWidget->SetCurrentRenderer(uiRen);
-	threshold_sliderWidget->SetRepresentation(threshold_sliderRep);
-	threshold_sliderWidget->SetAnimationModeToAnimate();
-	threshold_sliderWidget->KeyPressActivationOff();
-	threshold_sliderWidget->SetEnabled(1);
-
-	//threshold_sliderWidget->On();
-	vtkSmartPointer<SliderCallback> threshold_scb = vtkSmartPointer<SliderCallback>::New();
-	threshold_scb->threshold_ptr = &config;
-	threshold_sliderWidget->AddObserver(vtkCommand::InteractionEvent, threshold_scb);
-
-    vtkSmartPointer<vtkTextActor> fovInfoText = vtkSmartPointer<vtkTextActor>::New();
-    fovInfoText->GetTextProperty()->SetFontSize(16);
-    fovInfoText->GetTextProperty()->SetColor(1.0, 1.0, 1.0);
-    fovInfoText->SetPosition(20, 10);           // Àû´çÇÑ À§Ä¡
-    uiRen->AddActor2D(fovInfoText);
-    fovInfoText->SetInput("FOV yaw = [0,360]\npitch = [-9,52]");
-
-
-    std::vector<vtkSmartPointer<vtkSliderWidget>> fovSliderWidgets;
-    vtkSmartPointer<vtkSliderRepresentation2D> yawStartRep;
-    vtkSmartPointer<vtkSliderRepresentation2D> yawStopRep;
-    vtkSmartPointer<vtkSliderRepresentation2D> pitStartRep;
-    vtkSmartPointer<vtkSliderRepresentation2D> pitStopRep;
-
-    // ¼öÆò ½ÃÀÛ
-    auto makeFovSlider = [&](double minV, double maxV, double yNorm,
-        const char* title, int field,
-        double initialValue,
-        vtkSmartPointer<vtkSliderRepresentation2D>& outRep) {
-        auto rep = vtkSmartPointer<vtkSliderRepresentation2D>::New();
-        rep->SetMinimumValue(minV);
-        rep->SetMaximumValue(maxV);
-        rep->SetValue(initialValue); 
-        rep->SetTitleText(title);
-        rep->SetEndCapLength(0.01);
-        rep->SetEndCapWidth(0.01);
-        rep->GetSliderProperty()->SetColor(1.0, 0.0, 0.0);
-        rep->GetSelectedProperty()->SetColor(1.0, 1.0, 0.0);
-        rep->SetTitleHeight(0.02);
-        rep->SetLabelHeight(0.015);
-        rep->SetSliderLength(0.03);
-        rep->SetSliderWidth(0.015);
-        rep->SetTubeWidth(0.005);
-
-        rep->GetPoint1Coordinate()->SetCoordinateSystemToNormalizedDisplay();
-        rep->GetPoint2Coordinate()->SetCoordinateSystemToNormalizedDisplay();
-        rep->GetPoint1Coordinate()->SetValue(0.05, yNorm);
-        rep->GetPoint2Coordinate()->SetValue(0.20, yNorm);
-        rep->SetRenderer(uiRen);
-
-        auto widget = vtkSmartPointer<vtkSliderWidget>::New();
-        widget->SetInteractor(iren);
-        widget->SetCurrentRenderer(uiRen);
-        widget->SetRepresentation(rep);
-        widget->SetAnimationModeToAnimate();
-        widget->KeyPressActivationOff();
-        widget->SetEnabled(1);
-        widget->On();
-
-
-
-        auto cb = vtkSmartPointer<FovSliderCallback>::New();
-        cb->field = field;
-        cb->infoText = fovInfoText.Get();
-        widget->AddObserver(vtkCommand::InteractionEvent, cb);
-
-        fovSliderWidgets.push_back(widget);
-
-        outRep = rep;
-    };
-
-    // ³× °³ÀÇ ½½¶óÀÌ´õ ´Ş±â
-    makeFovSlider(0, 360, 0.25, "Yaw Start", 0, fov_cfg0.yaw_start, yawStartRep);
-    makeFovSlider(0, 360, 0.20, "Yaw Stop", 1, fov_cfg0.yaw_stop, yawStopRep);
-    makeFovSlider(-9, 52, 0.15, "Pitch Start", 2, fov_cfg0.pitch_start, pitStartRep);
-    makeFovSlider(-9, 52, 0.10, "Pitch Stop", 3, fov_cfg0.pitch_stop, pitStopRep);
-
-
-
-    // ¦¡¦¡ ¸®¼Â ¹öÆ° Ç¥Çö ¦¡¦¡
-    auto resetRep = vtkSmartPointer<vtkTexturedButtonRepresentation2D>::New();
-    resetRep->SetNumberOfStates(1);
-    resetRep->SetButtonTexture(0, LoadPNG("icons/reset.png"));
-    double rx0 = winSize[0] * 0.075, rx1 = rx0 + 128;
-    double ry1 = winSize[1] * 1.05, ry0 = ry1 - 64;
-    double rb[6] = { rx0,rx1, ry0,ry1, 0,0 };
-    resetRep->PlaceWidget(rb);
-    resetRep->SetRenderer(uiRen);
-
-    auto resetBtn = vtkSmartPointer<vtkButtonWidget>::New();
-    resetBtn->SetInteractor(iren);
-    resetBtn->SetCurrentRenderer(uiRen);
-    resetBtn->SetRepresentation(resetRep);
-    resetBtn->On();
-
-    // Äİ¹é ¿¬°á
-    auto cbReset = vtkSmartPointer<ResetCallback>::New();
-    cbReset->cfg = &config;
-    cbReset->iterRep = iteration_sliderRep;
-    cbReset->meanRep = mean_k_sliderRep;
-    cbReset->thrRep = threshold_sliderRep;
-    cbReset->yaw0Rep = vtkSliderRepresentation2D::SafeDownCast(
-        fovSliderWidgets[0]->GetRepresentation());
-    cbReset->yaw1Rep = vtkSliderRepresentation2D::SafeDownCast(
-        fovSliderWidgets[1]->GetRepresentation());
-    cbReset->pit0Rep = vtkSliderRepresentation2D::SafeDownCast(
-        fovSliderWidgets[2]->GetRepresentation());
-    cbReset->pit1Rep = vtkSliderRepresentation2D::SafeDownCast(
-        fovSliderWidgets[3]->GetRepresentation());
-    cbReset->viewer = viewer.get();
-    cbReset->default_iter = default_iteration;
-    cbReset->default_mean_k = default_mean_k;
-    cbReset->default_threshold = default_threshold;
-    cbReset->default_fov0 = default_fov0;
-    //cbReset->default_fov1 = default_fov1;
-    resetBtn->AddObserver(vtkCommand::StateChangedEvent, cbReset);
-
-    viewer->getRenderWindow()->Render();
-
+    bool exit_for_reboot = false;
     bool prev_onReach = onReachoffCounter;
+    bool prev_volume = false;
+	bool isConnected = false; // LiDAR ì—°ê²° ìƒíƒœ
+    bool result_shown = false; // ê²°ê³¼ ì •ì§€ì‹œí‚¤ë ¤ê³ 
+    bool mergedReady = false; // ì •í•´ì§„ ë²„í¼ë§Œí¼ ìŠ¬ë¼ì´ë”© ìœˆë„ìš°ì²˜ëŸ¼ ë™ì‘ë˜ë„ë¡ ëˆ„ì í”„ë ˆì„ì„ ìƒˆë¡œìš´ ëˆ„ì í”„ë ˆì„ìœ¼ë¡œ ë³´ì—¬ì§€ê²Œë”
 
-    // ¸ŞÀÎ ·çÇÁ
-    while (!viewer->wasStopped()) {
+    bool needResetAccum = false;
+
+
+    // ë©”ì¸ ë£¨í”„
+    while (!viewer->wasStopped() && !exit_for_reboot) {
+
+        bool vspChanged = (V_start_process != previous_V_start_process);
+        bool resetAccum = vspChanged;
+
+        if (viewer->wasStopped()) break;
+
+		uiMgr.Update();
+
+        // Livox API ë¡œ ì—°ê²° ìƒíƒœ ì¡°íšŒ (ì˜ˆì‹œ)
+        uint32_t handle = g_lidar_handle.load();
+        isConnected = (handle != 0);  // í˜¹ì€ API ì—ì„œ ì—°ê²° ìƒíƒœ ì§ì ‘ ë¬¼ì–´ë³´ê¸°
+
+        // í˜¸ìŠ¤íŠ¸ IPëŠ” ë§¤ loopë§ˆë‹¤ ë°”ë€” ì¼ì´ ì—†ìœ¼ë‹ˆ í•œ ë²ˆë§Œ ê³„ì‚°í•´ë„ ë©ë‹ˆë‹¤.
+        static std::string host_ip = GetHostIP();
+
+        std::ostringstream ss;
+        ss
+            << "LiDAR IP         : " << host.lidar_ip << "\n"
+            << "Host IP           : " << host_ip << "\n"
+			<< "Config Host   : " << host.config_host_ip << "\n"
+            << "Status            : " << (lidar_receiving ? "Receiving" : "No Data");
+
+        uiMgr.SetConnectionText(ss.str());
+
         try {
             viewer->spinOnce();
-            updateCameraPositionText(viewer);
+			if (viewer->wasStopped()) break;
+            {
+                // 1) FPS
+                auto now = std::chrono::steady_clock::now();
+                double frame_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_frame_time).count();
+                last_frame_time = now;
+                fps = frame_ms > 0 ? 1000.0 / frame_ms : fps;
+                viewer->removeShape("perf_text");
+                std::ostringstream oss_perf;
+                oss_perf << "FPS: " << std::fixed << std::setprecision(1) << fps;
+                viewer->addText(oss_perf.str(), 10, 10, 12, 1, 1, 1, "perf_text");
+
+                // 2) CPU
+                double cpu = GetCpuUsage();
+                viewer->removeShape("cpu_text");
+                std::ostringstream oss_cpu;
+                oss_cpu << "CPU: " << std::fixed << std::setprecision(1) << cpu << "%";
+                viewer->addText(oss_cpu.str(), 850, 700, 12, 1, 1, 1, "cpu_text");
+            }
+
 
             {
                 std::lock_guard<std::mutex> lock(control_mutex);
@@ -1867,7 +2250,7 @@ int main(int argc, const char* argv[]) {
 
 
             std::ostringstream ss;
-            if (READ_PCD_FROM_FILE) { // ÆÄÀÏ¿¡¼­ PCD ·Îµå
+            if (READ_PCD_FROM_FILE) { // íŒŒì¼ì—ì„œ PCD ë¡œë“œ
                 std::lock_guard<std::mutex> lk(control_mutex);
                 size_t total = cloud_loaded->points.size();
                 float pct = total > 0 ? (100.0f * point_index) / total : 0.0f;
@@ -1875,8 +2258,10 @@ int main(int argc, const char* argv[]) {
                     << std::fixed << std::setprecision(1) << pct << "%"
                     << "\n" << (enableReplay ? " [Loop:On]" : "[Loop:Off]");
 
+                size_t start_index = static_cast<size_t>(total * 0.40f);
+                size_t end_index = total; // 100%
+
                 if (reading_active) {
-                    // chunk_size = 96 * iteration = 96 * 100 = 9,600
                     const int chunk_size = 96 * iteration;
                     int count_pushed = 0;
 
@@ -1884,14 +2269,18 @@ int main(int argc, const char* argv[]) {
                         cloud_merge->points.push_back(cloud_loaded->points[point_index]);
                         ++point_index;
                         ++count_pushed;
-                    }
+                    } 
                     cloud_merge->width = cloud_merge->points.size();
                     cloud_merge->height = 1;
-
-                    //if (count_pushed > 0) {
-                    //    V_start_process = true;
-                    //}
                 }
+                //if (point_index >= static_cast<int>(end_index)) {
+                //    if (enableReplay) {
+                //        point_index = static_cast<int>(start_index); // 40% êµ¬ê°„ìœ¼ë¡œ ëŒì•„ê°
+                //    }
+                //    else {
+                //        reading_active = false;
+                //    }
+                //}
                 if (point_index >= static_cast<int>(total)) {
                     if (enableReplay) {
                         point_index = 0;
@@ -1904,7 +2293,7 @@ int main(int argc, const char* argv[]) {
             }
             else { ss << "Mode: Real-time"; }
 
-            if (heightCalibration_mode) { // Áö¸é Ä¶¸®ºê·¹ÀÌ¼Ç ¸ğµå                
+            if (heightCalibration_mode) { // ì§€ë©´ ìº˜ë¦¬ë¸Œë ˆì´ì…˜ ëª¨ë“œ                
                 {
                     std::lock_guard<std::mutex> lock(g_mutex);
                     cloud_ground->clear();
@@ -1931,9 +2320,9 @@ int main(int argc, const char* argv[]) {
                     voxelizePointCloud(cloud_ground, 0.1f, 0.1f, 0.1f);
                 }
 
-                try { // Áö¸é ³ôÀÌ °è»ê
+                try { // ì§€ë©´ ë†’ì´ ê³„ì‚°
                     fixed_ground_height = std::abs(calculateGroundHeight(cloud_ground));
-                    ground_height_fixed = true; // Áö¸é ³ôÀÌ °íÁ¤(Åä±Û)
+                    ground_height_fixed = true; // ì§€ë©´ ë†’ì´ ê³ ì •(í† ê¸€)
 
                     std::cout << "[Calibration] Ground height fixed: " << fixed_ground_height << " m" << std::endl;
 
@@ -1953,7 +2342,7 @@ int main(int argc, const char* argv[]) {
                     viewer->addPointCloud<pcl::PointXYZI>(cloud_ground, color_handler, "roi_cloud");
                     viewer->setPointCloudRenderingProperties(
                         pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "roi_cloud"
-                    ); // »¡°­»öÀ¸·Î Áö¸é Æ÷ÀÎÆ® Ç¥½Ã
+                    ); // ë¹¨ê°•ìƒ‰ìœ¼ë¡œ ì§€ë©´ í¬ì¸íŠ¸ í‘œì‹œ
                 }
                 catch (const std::runtime_error& e) {
                     std::cerr << "[ERROR] " << e.what() << std::endl;
@@ -1964,7 +2353,7 @@ int main(int argc, const char* argv[]) {
                 }
             }
 			else if (!heightCalibration_mode && ground_height_fixed) {
-				// Áö¸é ³ôÀÌ °íÁ¤ »óÅÂ¿¡¼­ Áö¸é Ä¶¸®ºê·¹ÀÌ¼Ç ¸ğµå Á¾·á
+				// ì§€ë©´ ë†’ì´ ê³ ì • ìƒíƒœì—ì„œ ì§€ë©´ ìº˜ë¦¬ë¸Œë ˆì´ì…˜ ëª¨ë“œ ì¢…ë£Œ
 				heightCalibration_mode = false;
 				ground_height_fixed = false;
 				std::cout << "[Calibration] Height Calibration mode ended." << std::endl;
@@ -1972,7 +2361,7 @@ int main(int argc, const char* argv[]) {
 			}
 
             // ------------------------------------------------------------------
-            // [ZMQ] ¸Ş½ÃÁö ¼ö½Å
+            // [ZMQ] ë©”ì‹œì§€ ìˆ˜ì‹ 
             // ------------------------------------------------------------------
             zmq::message_t msg;
             if (subscriber.recv(msg, zmq::recv_flags::dontwait)) {
@@ -1990,38 +2379,102 @@ int main(int argc, const char* argv[]) {
             }
 
             // ------------------------------------------------------------------
-            // ºÎÇÇ ÃøÁ¤ ¸ğµå¿Í ¾Æ´Ò ¶§, ÀÌÀü µ¥ÀÌÅÍ Á¦°Å
+            // ë¶€í”¼ ì¸¡ì • ëª¨ë“œì™€ ì•„ë‹ ë•Œ, ì´ì „ ë°ì´í„° ì œê±°
             // ------------------------------------------------------------------
-            if (V_start_process != previous_V_start_process) {
-                if (previous_V_start_process) {
-                    viewer->removePointCloud("cloud_pcd");
-                    viewer->removePointCloud("cloud_angle_filtered");
-                    viewer->removeShape("result");
-                    viewer->removeShape("angle_line");
-                    for (const auto& line_id : volume_line_ids) {
-                        viewer->removeShape(line_id);
-                    }
-                    volume_line_ids.clear();
+            //if (V_start_process != previous_V_start_process) {
+            //    if (previous_V_start_process) {
+            //        viewer->removePointCloud("cloud_pcd");
+            //        viewer->removePointCloud("cloud_filtered_volume");
+            //        viewer->removeShape("result");
+            //        viewer->removeShape("angle_line");
+            //        for (const auto& line_id : volume_line_ids) {
+            //            viewer->removeShape(line_id);
+            //        }
+            //        volume_line_ids.clear();
+            //    }
+            //    viewer->removeShape("tune_stauts");
+            //    viewer->removeShape("circle_status");
+            //    viewer->removeShape("time_text");
+            //    viewer->removeShape("tmp_height_text");
+            //    viewer->removeShape("Load_points_text");
+            //    viewer->removeShape("1clk_delay");
+            //    viewer->removeShape("2clk_delay");
+            //    viewer->removeShape("Params_text");
+            //    viewer->removeShape("3clk_delay");
+            //    viewer->removeShape("4clk_delay");
+            //    viewer->removeShape("angle_text");
+            //    viewer->removeShape("dim_text");
+            //    viewer->removeShape("status_text");
+
+            //    for (int i = 0; i < 4; ++i) {
+            //        viewer->removeShape("rect_edge" + std::to_string(i));
+            //        viewer->removeShape("obb_edge" + std::to_string(i));
+            //    }
+
+            //    viewer->removePointCloud("cloud_out");
+
+            //    frameBuf.clear();
+
+            //    uiMgr.SetDevText("");
+
+            //    // í¬ì¸íŠ¸ í´ë¼ìš°ë“œ ë°ì´í„° ì´ˆê¸°í™”
+            //    resetPointCloudData();
+
+            //    // V_start_process ê»ë‹¤ ì¼œë©´ ê²°ê³¼ë„ ë‹¤ì‹œ ë³´ì—¬ì£¼ë„ë¡ í”Œë˜ê·¸ ë¦¬ì…‹
+            //    result_shown = false;
+
+            //    // ì´ì „ ìƒíƒœ ì—…ë°ì´íŠ¸
+            //    previous_V_start_process = V_start_process;
+
+            //    // Viewerì— í˜„ì¬ ìƒíƒœ í…ìŠ¤íŠ¸ ì—…ë°ì´íŠ¸
+            //    std::string status_text = "V_start_process: " + std::string(V_start_process ? "True" : "False");
+            //    viewer->removeShape("v_start_process_text");
+            //    viewer->addText(status_text, 20, 530, 20, 1, 1, 1, "v_start_process_text");
+
+            //    std::cout << "[INFO] V_start_process state changed to "
+            //        << (V_start_process ? "True" : "False") << ". Data has been reset." << std::endl;
+            //}
+
+
+
+
+            if (vspChanged) {
+
+                viewer->removeShape("circle_status");
+                viewer->removeShape("status_text");
+                viewer->removeShape("time_text");
+                viewer->removeShape("tmp_height_text");
+                viewer->removeShape("Load_points_text");
+                viewer->removeShape("1clk_delay");
+                viewer->removeShape("2clk_delay");
+                viewer->removeShape("Params_text");
+                viewer->removeShape("3clk_delay");
+                viewer->removeShape("4clk_delay");
+                viewer->removeShape("angle_text");
+                viewer->removeShape("dim_text");
+                viewer->removeShape("status_text");
+
+                for (int i = 0; i < 4; ++i) {
+                    viewer->removeShape("rect_edge" + std::to_string(i));
+                    viewer->removeShape("obb_edge" + std::to_string(i));
                 }
 
-                devPanel->SetInput("");
+                viewer->removePointCloud("cloud_out");
 
-                // Æ÷ÀÎÆ® Å¬¶ó¿ìµå µ¥ÀÌÅÍ ÃÊ±âÈ­
+
+                uiMgr.SetDevText("");
+                prev_volume = false;
+
                 resetPointCloudData();
+                merged->clear();
+                frameBuf.clear();
+                result_shown = false;
+                needResetAccum = true;
 
-                // ÀÌÀü »óÅÂ ¾÷µ¥ÀÌÆ®
                 previous_V_start_process = V_start_process;
 
-                // Viewer¿¡ ÇöÀç »óÅÂ ÅØ½ºÆ® ¾÷µ¥ÀÌÆ®
-                std::string status_text = "V_start_process: " + std::string(V_start_process ? "True" : "False");
-                viewer->removeShape("v_start_process_text");
-                viewer->addText(status_text, 20, 630, 20, 1, 1, 1, "v_start_process_text");
-
-                std::cout << "[INFO] V_start_process state changed to "
-                    << (V_start_process ? "True" : "False") << ". Data has been reset." << std::endl;
+                std::cout << "[INFO] Accum buffer _will_ be reset on next accumulation.\n";
             }
-
-
 
             if (cloud_merge && !cloud_merge->empty()) {
                 std::lock_guard<std::mutex> lk(g_mutex);
@@ -2029,7 +2482,7 @@ int main(int argc, const char* argv[]) {
                 if (config.flag_raw_cloud)
                 {
                     viewer->removePointCloud("raw");
-                    // ÃÖ½Å cloud_raw ¸¦ Èò»ö Á¡À¸·Î ±×¸®±â
+                    // ìµœì‹  cloud_raw ë¥¼ í°ìƒ‰ ì ìœ¼ë¡œ ê·¸ë¦¬ê¸°
                     pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZI> rawHandler(cloud_merge, 255, 255, 255);
                     viewer->addPointCloud<pcl::PointXYZI>(cloud_merge, rawHandler, "raw");
                     viewer->setPointCloudRenderingProperties(
@@ -2043,7 +2496,7 @@ int main(int argc, const char* argv[]) {
 
 
                 // ------------------------------------------------------------------
-                // 1Ãş ÇÈ¾÷
+                // 1ì¸µ í”½ì—…
 
 
                 int count_load_roi_1 = 0;
@@ -2074,7 +2527,7 @@ int main(int argc, const char* argv[]) {
                 }
 
 
-                if (count_load_roi_1 >= 10 && count_load_roi_1 <= 1000) {
+                if (count_load_roi_1 >= 10 && count_load_roi_1 <= 5000) {
                     PickUp_1 = true;
                     //std::cout << "[PICKUP] 1st Floor !!!" << std::endl;
 
@@ -2086,40 +2539,31 @@ int main(int argc, const char* argv[]) {
                         pcl::visualization::PCL_VISUALIZER_LINE_WIDTH,
                         8, "pickup_text");
 
-
-
-                    viewer->removeShape("load_roi_box_1");
-                    viewer->addCube(
-                        loadROI_x1_min, loadROI_x1_max,
-                        loadROI_y_min, loadROI_y_max,
-                        loadROI_z_min, loadROI_z_max,
-                        0.0, 0.5, 1.0,
-                        "load_roi_box_1"
-                    );
-                    viewer->setShapeRenderingProperties(
-                        pcl::visualization::PCL_VISUALIZER_REPRESENTATION,
-                        pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME,
-                        "load_roi_box_1"
-                    );
-                }
-
-                else
-                {
-                    viewer->removeShape("pickup_text");
+                    heightCalibration_mode = false;
 
                     //viewer->removeShape("load_roi_box_1");
+                    //viewer->addCube(
+                    //    loadROI_x1_min, loadROI_x1_max,
+                    //    loadROI_y_min, loadROI_y_max,
+                    //    loadROI_z_min, loadROI_z_max,
+                    //    0.68, 1.0, 0.18,
+                    //    "load_roi_box_1"
+                    //);
+                    //viewer->setShapeRenderingProperties(
+                    //    pcl::visualization::PCL_VISUALIZER_REPRESENTATION,
+                    //    pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME,
+                    //    "load_roi_box_1"
+                    //);
+                } else
+                {
+                    viewer->removeShape("pickup_text");
+                    viewer->removeShape("load_roi_box_1");
+
+                    //heightCalibration_mode = true;
                 }
 
 
-                float roiVolXMin = -fixed_ground_height + 0.25f;
-                float roiVolXMax = roiVolXMin + 1.9f;
-                float roiVolYMin = config.flag_reach_off_counter ? -1.65f : -1.40f;
-                float roiVolYMax = config.flag_reach_off_counter ? -0.45f : -0.18f;
-                float roiVolZMin = config.flag_reach_off_counter ? -0.20f : -0.25f;
-                float roiVolZMax = config.flag_reach_off_counter ? 1.20f : 1.25f;
-
-
-                // 4) LoadROI ¹Ú½º ±×¸®±â
+                // 4) LoadROI ë°•ìŠ¤ ê·¸ë¦¬ê¸°
                 if (config.flag_load_roi) {
                     viewer->removeShape("load_roi_box");
                     viewer->addCube(
@@ -2141,22 +2585,21 @@ int main(int argc, const char* argv[]) {
                 }
 
 
+
+
                 // -------------------------------------------------------------------------------------
-                // [¸ğµå1] ºÎÇÇ Çü»ó ÃøÁ¤
+                // [ë¶€í”¼ í˜•ìƒ ì¸¡ì •]
                 // -------------------------------------------------------------------------------------
                 if (V_start_process && PickUp_1) {
-                    // V_start_process°¡ trueÀÎ °æ¿ì: x < 0.0fÀÎ Æ÷ÀÎÆ® Ã³¸®
-                    float start_min_y = std::numeric_limits<float>::infinity();
-                    pcl::PointXYZI start_min_y_point;
-                    float end_min_y = std::numeric_limits<float>::infinity();
-                    pcl::PointXYZI end_min_y_point;
+                    bool resetAccum = needResetAccum;
+
                     std::vector<float> x_values;
 
                     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_pcd_local(new pcl::PointCloud<pcl::PointXYZI>);
                     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_filtered_volume(new pcl::PointCloud<pcl::PointXYZI>);
                     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_angle_filtered(new pcl::PointCloud<pcl::PointXYZI>);
 
-                    // 2) Å¬¶ó¿ìµå¿Í º¤ÅÍ ÃÊ±âÈ­ ¹× reserve
+                    // 2) í´ë¼ìš°ë“œì™€ ë²¡í„° ì´ˆê¸°í™” ë° reserve
                     cloud_filtered_volume->points.clear();
                     cloud_pcd_local->points.clear();
                     x_values.clear();
@@ -2166,14 +2609,13 @@ int main(int argc, const char* argv[]) {
                     cloud_pcd_local->points.reserve(N);
                     x_values.reserve(N);
 
-                    // 3) Æ÷ÀÎÆ® Å¬¶ó¿ìµå ÇÊÅÍ¸µ
+                    // 3) í¬ì¸íŠ¸ í´ë¼ìš°ë“œ í•„í„°ë§
                     for (auto& temp : cloud_merge->points) {
                         pcl::PointXYZI point;
                         point.x = temp.x;
-                        point.y = temp.y * COS_THETA - temp.z * SIN_THETA;
-                        point.z = temp.y * SIN_THETA + temp.z * COS_THETA;
-                        point.intensity = temp.intensity; // intensity ÇÊµåµµ º¹»ç
-
+                        point.y = temp.y;
+                        point.z = temp.z;
+                        point.intensity = temp.intensity; // intensity í•„ë“œë„ ë³µì‚¬
 
                         if (point.x >= roiVolXMin && point.x < roiVolXMax &&
                             point.y >= roiVolYMin && point.y <= roiVolYMax &&
@@ -2183,37 +2625,99 @@ int main(int argc, const char* argv[]) {
                             cloud_filtered_volume->points.push_back(point);
                             cloud_pcd_local->points.push_back(point);
                         }
-                        if (point.z >= 0.1f && point.z <= 0.3f) {
-                            if (point.y < start_min_y) {
-                                start_min_y = point.y;
-                                start_min_y_point = point;
-                            }
-                        }
-
-                        if (point.z > 0.7f && point.z <= 0.9f) {
-                            if (point.y < end_min_y) {
-                                end_min_y = point.y;
-                                end_min_y_point = point;
-                            }
-                        }
                     }
-                
-
-
                     cloud_filtered_volume->width = cloud_filtered_volume->points.size();
                     cloud_filtered_volume->height = 1;
 
+                    pcl::VoxelGrid<pcl::PointXYZI> vg;
+                    vg.setInputCloud(cloud_filtered_volume);
+                    vg.setLeafSize(0.02f, 0.02f, 0.02f);  // 0.5cm í•´ìƒë„
+                    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_ds(new pcl::PointCloud<pcl::PointXYZI>);
+                    vg.filter(*cloud_ds);
+                    cloud_filtered_volume.swap(cloud_filtered_volume);
+
+                    if (config.flag_reach_off_counter) { // ë¦¬ì¹˜ ì¼ë•Œ
+                        //if (cloud_filtered_volume->points.size() > 2000) {
+                        //    bufferSize = 3;
+                        //}
+                        //if (cloud_filtered_volume->points.size() > 4000) {
+                        //    bufferSize = 2;
+                        //}
+                        if (cloud_filtered_volume->points.size() > 6000) {
+                            bufferSize = 2;
+                        }
+                    }
+                    else { // ì¹´ìš´í„°ë°¸ëŸ°ìŠ¤ ì¼ë•Œ
+                        if (cloud_filtered_volume->points.size() > 4000) {
+                            bufferSize = 2;
+                        }
+                        if (cloud_filtered_volume->points.size() > 9000) {
+                            bufferSize = 1;
+                        }
+                    }
+                    viewer->removeShape("Load_points_text");
+                    std::ostringstream oss1;
+                    oss1 << "Load points: " << cloud_filtered_volume->points.size();
+                    viewer->addText(
+                        oss1.str(),
+                        800, 37,       // í™”ë©´ ì¢Œí‘œ
+                        14,            // ê¸€ì í¬ê¸°
+                        1.0, 1.0, 1.0, // í°ìƒ‰
+                        "Load_points_text"
+					);
+
+
+                    if (config.flag_height_only && !config.flag_detect_plane_yz) {
+                        bool orig_detect = config.flag_detect_plane_yz;
+                        bool orig_volume = config.flag_volume;
+
+                        config.flag_detect_plane_yz = false;
+                        config.flag_volume = false;
+
+                        float height_mm = MeasureHeight(cloud_filtered_volume);
+                        float width_mm = 0.0f;
+                        float depth_mm = 0.0f;
+
+                        bool result_status = true;
+                        std::string json_result = "{"
+                            "\"height\": " + std::to_string(height_mm) + ", "
+                            "\"width\": " + std::to_string(width_mm) + ", "
+                            "\"length\": " + std::to_string(depth_mm) + ", "
+                            "\"result\": " + std::to_string(result_status) + ", "
+                            "\"timestamp\": \"" + getCurrentTime() + "\", "
+                            "\"points\": [] }";
+
+                        std::ostringstream oss;
+                        oss << "Height: " << height_mm << " mm \n"
+                            << "Width: " << width_mm << " mm \n"
+                            << "Length: " << depth_mm << " mm \n";
+
+                        std::string result = oss.str();
+                        if (!result_shown) {
+                            uiMgr.SetDevText(result);
+                            result_shown = true;
+                        }
+                        
+
+                        std::string msg_pub = "MID360>LIS " + json_result;
+                        zmq::message_t topic_msg(msg_pub.c_str(), msg_pub.length());
+                        publisher.send(topic_msg, zmq::send_flags::dontwait);
+
+                        height_mm = 0;
+                        width_mm = 0;
+                        depth_mm = 0;
+
+                        config.flag_detect_plane_yz = orig_detect;
+                        config.flag_volume = orig_volume;
+                    }
+                    else {}
+
+
+
+
                     if (!config.flag_detect_plane_yz) {
                         viewer->removePointCloud("cloud_filtered_volume");
-                        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZI> color_handler(
-                            cloud_filtered_volume, 255, 255, 255);
-                        viewer->addPointCloud<pcl::PointXYZI>(cloud_filtered_volume, color_handler, "cloud_filtered_volume");
-                        viewer->setPointCloudRenderingProperties(
-                            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "cloud_filtered_volume"
-                        );
                     }
-					//viewer->removePointCloud("cloud_pcd");
-					//viewer->addPointCloud<pcl::PointXYZI>(cloud_pcd_local, "cloud_pcd");
 
                     if (!x_values.empty()) {
                         calcMaxX(x_values, max_x_value);
@@ -2223,127 +2727,403 @@ int main(int argc, const char* argv[]) {
                     }
 
 
-                    // Voxel Downsample
-                    voxelizePointCloud(cloud_filtered_volume, 0.05f, 0.02f, 0.02f);
 
-                    // Outlier Remove
-                    removeOutliers(cloud_filtered_volume, config);
-
-                    // Angle Points °è»ê
-                    //calculateAnglePoints(start_min_y_point, end_min_y_point, viewer);
-
-                    // Ãß°¡ °¢µµ º¸Á¤ (Àç°è»ê ÇÊ¿ä)
-                    float COS_THETA_updated = cos(angle_degrees * M_PI / 180.0);
-                    float SIN_THETA_updated = sin(angle_degrees * M_PI / 180.0);
-                    for (auto& temp : cloud_filtered_volume->points) {
-                        pcl::PointXYZI point;
-                        point.x = temp.x;
-                        point.y = temp.y * COS_THETA_updated - temp.z * SIN_THETA_updated;
-                        point.z = temp.y * SIN_THETA_updated + temp.z * COS_THETA_updated;
-                        point.intensity = temp.intensity; // intensity °ªµµ º¹»ç!
-
-                        cloud_angle_filtered->points.push_back(point);
+                    if (!config.flag_tuning) {
+                        viewer->removeShape("tune_status");
+                        viewer->removeShape("status_text");
+                        viewer->removeShape("eta_text");
+                        tuningStarted = tuningDone = false;
+                        tuning_timer_started = false;
                     }
-                    //cloud_angle_filtered->width = static_cast<uint32_t>(cloud_angle_filtered->points.size());
-                    //cloud_angle_filtered->height = 1;
-                    //cloud_angle_filtered->is_dense = false;
+                    if (config.flag_tuning) {
+                        static bool shownDone = false;
+						float height_mm = MeasureHeight(cloud_filtered_volume);
 
+
+                        if (!accumulatePlaneClusters(cloud_filtered_volume, roiVolXMin, roiVolXMax,
+                            roiVolYMin, roiVolYMax, roiVolZMin, roiVolZMax,
+                            bufferSize, merged, false, viewer)) {
+                            viewer->spinOnce();
+                            continue;
+                        }
+
+                        if (!tuningStarted) {
+                            tuningStarted = true;
+                            tuningDone = false;
+                            shownDone = false;
+                            viewer->removeShape("tune_status");
+                            viewer->addText("tuning...", 200, 50, 14, 1, 1, 0, "tune_status");
+
+                            // íŠœë‹ ì‹œì‘ ì‹œê°„ ì €ì¥
+                            tuning_timer_started = true;
+                            tuning_start = std::chrono::steady_clock::now();
+
+                            // ê·¸ë¦¬ë“œ ìƒì„±
+                            std::vector<float> leafSizes;
+                            for (int i = 1; i <= 6; ++i)   // 6 ë‹¨ê³„: 0.005, 0.01, â€¦, 0.03
+                                leafSizes.push_back(i * 0.005f);
+                            std::vector<int> sorKs;
+                            for (int k = 5; k <= 100; k += 5)
+                                sorKs.push_back(k);
+                            std::vector<float> sorThs;
+                            for (int i = 1; i <= 20; ++i)  // 20 ë‹¨ê³„: 0.25, 0.50, â€¦, 5.00
+                                sorThs.push_back(i * 0.25f);
+
+                            // ë°±ê·¸ë¼ìš´ë“œ íŠœë‹ ì‹œì‘
+                            std::thread(runTuningAsync,
+                                merged,
+                                real_w, real_d, 2.0f,
+                                leafSizes, sorKs, sorThs
+                            ).detach();
+                        }
+
+
+                        // 3) ì•„ì§ íŠœë‹ ì¤‘
+                        if (!tuningDone) {
+                            // ì§„í–‰/ì „ì²´
+                            size_t prog = tuningProgress.load();
+                            size_t tot = tuningTotal;
+                            float pct = tot ? (100.0f * prog / tot) : 0.0f;
+
+                            // ETA ê³„ì‚°
+                            std::string eta_str;
+                            if (tuning_timer_started && prog > 0) {
+                                auto now = std::chrono::steady_clock::now();
+                                double elapsed_s = std::chrono::duration_cast<std::chrono::seconds>(now - tuning_start).count();
+                                double avg_per = elapsed_s / prog;
+                                double remain_s = avg_per * (tot - prog);
+                                int h = int(remain_s) / 3600;
+                                int m = (int(remain_s) % 3600) / 60;
+                                int s = int(remain_s) % 60;
+                                std::ostringstream oss_eta;
+                                oss_eta << "ETA: "
+                                    << (h > 0 ? std::to_string(h) + "h " : "")
+                                    << (m > 0 ? std::to_string(m) + "m " : "")
+                                    << s << "s";
+                                eta_str = oss_eta.str();
+                            }
+
+                            std::ostringstream ss;
+                            ss << "Tuning: " << prog << "/" << tot
+                                << " (" << std::fixed << std::setprecision(1) << pct << "%)"
+                                << " | ErrW=" << std::fixed << std::setprecision(1)
+                                << (bestWpct.load() == std::numeric_limits<float>::infinity() ? 0 : bestWpct.load()) << "%"
+                                << ", ErrD=" << std::fixed << std::setprecision(1)
+                                << (bestDpct.load() == std::numeric_limits<float>::infinity() ? 0 : bestDpct.load()) << "%"
+                                << "  [leaf=" << std::fixed << std::setprecision(3) << bestLeaf.load()
+                                << "  k=" << bestMeanK.load()
+                                << "  std=" << std::fixed << std::setprecision(2) << bestStdDev.load()
+                                << "]";
+                            viewer->removeShape("tune_status");
+                            viewer->addText(ss.str(), 200, 50, 14, 1, 1, 0, "tune_status");
+                            // ETA í‘œì‹œ
+                            viewer->removeShape("eta_text");
+                            if (!eta_str.empty())
+                                viewer->addText(eta_str, 200, 35, 12, 1, 1, 0, "eta_text");
+
+                            if (tuneAll) {
+                                size_t idx = pcd_index + 1;
+                                size_t total = pcd_files.size();
+                                size_t remain = total - idx;
+
+                                std::ostringstream ossAll;
+                                ossAll
+                                    << "File " << idx << "/" << total
+                                    << "  (Remaining: " << remain << ")";
+                                viewer->removeShape("tuneAll_text");
+                                viewer->removeShape("tuneAll_text");
+								viewer->addText(ossAll.str(), 200, 20, 12, 1, 1, 1, "tuneAll_text");
+							}
+                            else {
+                                viewer->removeShape("tuneAll_text");
+                            }
+
+                        }
+                        // 4) íŠœë‹ ì™„ë£Œ
+                        else {
+                            if (!shownDone) {
+                                // í•œ ë²ˆë§Œ í‘œì‹œ
+                                std::ostringstream oss;
+                                oss << "Done: leaf=" << std::fixed << std::setprecision(3) << bestLeaf.load()
+                                    << ", k=" << bestMeanK.load()
+                                    << ", thr=" << std::fixed << std::setprecision(2) << bestStdDev.load()
+                                    << " | ErrW=" << std::fixed << std::setprecision(1) << bestWpct.load() << "%"
+                                    << ", ErrD=" << std::fixed << std::setprecision(1) << bestDpct.load() << "%"
+                                    << "\nHeight= " << height_mm;
+
+                                viewer->removeShape("tune_status");
+                                viewer->addText(oss.str(), 200, 50, 14, 0, 1, 0, "tune_status");
+                            
+                                if (tuneAll) {
+                                    viewer->removeShape("tuneAll_text");
+                                    viewer->addText(
+                                        "Tuned: " + pcd_files[pcd_index],
+                                        200, 20, 12, 1, 1, 1, "tuneAll_text"
+                                    );
+
+                                    std::string csv_path = "reach/tuning_results.csv";
+                                    std::ofstream csv(csv_path, std::ios::app);
+                                    bool need_header = true;
+                                    if (std::filesystem::exists(csv_path) &&
+                                        std::filesystem::file_size(csv_path) > 0) {
+                                        need_header = false;
+                                    }
+                                    if (need_header) {
+                                        csv << "pcd_file,leaf[m],mean_k,stddev,ErrW[%],ErrD[%],points\n";
+                                    }
+
+                                    csv
+                                        << pcd_files[pcd_index] << ","
+                                        << std::fixed << std::setprecision(3) << bestLeaf.load() << ","
+                                        << bestMeanK.load() << ","
+                                        << std::fixed << std::setprecision(2) << bestStdDev.load() << ","
+                                        << bestWpct.load() << ","
+                                        << bestDpct.load() << ","
+                                        << cloud_filtered_volume->points.size()
+                                        << "\n";
+                                    csv.close();
+
+
+                                    // â€” ë‹¤ìŒ íŒŒì¼ë¡œ ë„˜ì–´ê°ˆ ì¤€ë¹„ â€”
+                                    if (pcd_index + 1 < pcd_files.size()) {
+                                        pcd_index++;
+
+                                        tuningStarted = false;
+                                        tuningDone = false;
+                                        tuningProgress = 0;
+                                        bestWpct = std::numeric_limits<float>::infinity();
+                                        bestDpct = std::numeric_limits<float>::infinity();
+
+                                        {
+                                            nlohmann::json j;
+                                            std::ifstream ifs(WATA_PATH);
+                                            ifs >> j; ifs.close();
+                                            j["file"]["read_file_name"] = pcd_files[pcd_index];
+                                            std::ofstream ofs(WATA_PATH);
+                                            ofs << j.dump(4) << "\n";
+                                        }
+                                        // ì¬ì‹¤í–‰ í”Œë˜ê·¸ ì„¸íŒ… í›„ ë£¨í”„ íƒˆì¶œ
+                                        vtk_ui::rebootRequested.store(true);
+                                        exit_for_reboot = true;
+                                        break;  // ë©”ì¸ ë£¨í”„ ì¢…ë£Œ -> uninit -> ì¬ì‹¤í–‰
+                                    }
+								}
+                                else {
+                                    viewer->removeShape("tuneAll_text");
+                                }
+                                
+                                shownDone = true;
+
+                            }
+                        }
+                    }
+                    
+
+
+
+                    if (config.flag_volume && V_start_process && !config.flag_height_only) {
+
+                        using clk1 = std::chrono::high_resolution_clock;
+						auto start = clk1::now();
+
+						float tmp_height_mm = MeasureHeight(cloud_filtered_volume);
+                        std::ostringstream ossh;
+                        ossh << "height(tmp): " << tmp_height_mm << std::endl;
+                        viewer->removeShape("tmp_height_text");
+                        viewer->addText(ossh.str(), 800, 10, 14, 1, 1, 1, "tmp_height_text");
+
+						mergedReady = accumulatePlaneClusters(
+							cloud_filtered_volume, roiVolXMin, roiVolXMax,
+							roiVolYMin, roiVolYMax, roiVolZMin, roiVolZMax,
+							bufferSize, merged, resetAccum, viewer
+						);
+                        previous_V_start_process = V_start_process;
+                        if (resetAccum) needResetAccum = false;
+
+						if (mergedReady) {
+                            filterMergedCloud(merged, filtered, viewer, config.flag_reach_off_counter, tmp_height_mm);
+
+                            std::vector<cv::Vec3f> circles;
+                            bool circleDetected = pixelizeAndDetectCircles(
+                                filtered,
+                                roiVolYMin, roiVolYMax,
+                                roiVolZMin, roiVolZMax,
+                                meterPerPixel,
+                                circles, viewer
+                            );
+
+                            if (viewer) {
+                                // ì´ì „ í‘œì‹œ ì œê±°
+                                viewer->removeShape("circle_status");
+                                if (circleDetected) {
+                                    viewer->addText(
+                                        "Circle Detected!",
+                                        10, 285,       // í™”ë©´ ì¢Œí‘œ
+                                        14,            // ê¸€ì í¬ê¸°
+                                        0.0, 1.0, 0.0, // ì´ˆë¡ìƒ‰
+                                        "circle_status"
+                                    );
+                                }
+                                else {
+                                    viewer->addText(
+                                        "No Circle",
+                                        10, 285,
+                                        14,
+                                        1.0, 0.0, 0.0, // ë¹¨ê°•ìƒ‰
+                                        "circle_status"
+                                    );
+                                }
+
+                            }
+                            float width_mm, depth_mm, height_mm;
+                            computeDimensionsFromPlane(
+                                filtered,
+                                circleDetected,
+                                width_mm, depth_mm, height_mm,
+                                viewer
+                            );
+                            if (height_mm != 0 && width_mm != 0 && depth_mm != 0) {
+                                bool result_status = true;
+
+                                std::string json_result = "{"
+                                    "\"height\": " + std::to_string(height_mm) + ", "
+                                    "\"width\": " + std::to_string(width_mm) + ", "
+                                    "\"length\": " + std::to_string(depth_mm) + ", "
+                                    "\"result\": " + std::to_string(result_status) + ", "
+                                    "\"timestamp\": \"" + getCurrentTime() + "\", "
+                                    "\"points\": [] }";
+
+                                std::ostringstream oss;
+                                oss << "Height: " << height_mm << " mm \n"
+                                    << "Width: " << width_mm << " mm \n"
+                                    << "Length: " << depth_mm << " mm \n";
+
+                                std::string result = oss.str();
+
+                                if (!result_shown) {
+                                    uiMgr.SetDevText(result);
+                                    result_shown = true;
+                                }
+
+                                std::string msg_pub = "MID360>LIS " + json_result;
+                                zmq::message_t topic_msg(msg_pub.c_str(), msg_pub.length());
+                                publisher.send(topic_msg, zmq::send_flags::dontwait);
+
+                                height_mm = 0;
+                                width_mm = 0;
+                                depth_mm = 0;
+                            }
+                            auto end = clk1::now();
+
+                            std::chrono::duration<double> elapsed = end - start;
+                            std::ostringstream oss;
+                            oss << "VolumeMeasure Time:\n"
+                                << std::fixed << std::setprecision(3)
+                                << elapsed.count() << " seconds";
+                            //viewer->removeShape("time_text");
+                            viewer->addText(
+                                oss.str(),
+                                750, 325,       // í™”ë©´ ì¢Œí‘œ
+                                12,            // ê¸€ì í¬ê¸°
+                                1.0, 1.0, 0.0, // ë…¸ë€ìƒ‰
+                                "time_text"
+                            );
+                        }                       
+                    }
 
 
 
                     //detectPlaneYZ(cloud_filtered_volume, viewer);
                     if (config.flag_detect_plane_yz) {
                         pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZI> ch(
-                            cloud_angle_filtered, 172, 255, 142);
+                            cloud_filtered_volume, 172, 255, 142);
 
-
-
-
-                        viewer->removePointCloud("cloud_angle_filtered");
-                        viewer->addPointCloud(cloud_angle_filtered, ch, "cloud_angle_filtered");
+                        viewer->removePointCloud("cloud_filtered_volume");
+                        viewer->addPointCloud(cloud_filtered_volume, ch, "cloud_filtered_volume");
 
                         viewer->setPointCloudRenderingProperties(
                             pcl::visualization::PCL_VISUALIZER_POINT_SIZE,
-                            2, "cloud_angle_filtered");
-
-
-
-                        std::cout << "[DEBUG] cloud_angle_filtered size: "
-                            << cloud_angle_filtered->points.size() << std::endl;
+                            2, "cloud_filtered_volume");
 
                         detectPlaneYZ(cloud_filtered_volume, viewer);
+
+                        if (!config.flag_height_only) {
+                            // ë¶€í”¼ ì¸¡ì • ê²°ê³¼ ê³„ì‚°
+                            if (x_lengths.size() == vector_size) {
+                                result_height = calculateAverageX(x_lengths) * 1000;
+                                x_lengths.clear();
+                            }
+
+                            if (y_lengths.size() == vector_size) {
+                                result_length = calculateAverageY(y_lengths) * 1000;
+                                y_lengths.clear();
+                            }
+
+                            if (z_lengths.size() == vector_size) {
+                                result_width = calculateAverageZ(z_lengths) * 1000;
+                                z_lengths.clear();
+                            }
+                        }
+                        if (config.flag_height_only) {
+                            // ë†’ì´ë§Œ ì¸¡ì • ê²°ê³¼ ê³„ì‚°
+                            if (x_lengths.size() == vector_size) {
+                                result_height = calculateAverageX(x_lengths) * 1000;
+                                x_lengths.clear();
+                            }
+                        }
+
+                        if ((result_height != 0 && result_width != 0 && result_length != 0) || (config.flag_height_only && result_height != 0 && result_width == 0 && result_length == 0)) {
+                            bool result_status = true;
+
+                            float ground_correction_mm = 0.0f;
+                            ground_correction_mm = fixed_ground_height * 1000.0f;
+                            result_height += (ground_correction_mm + 9.5f);
+
+                            std::string json_result = "{"
+                                "\"height\": " + std::to_string(result_height) + ", "
+                                "\"width\": " + std::to_string(result_width) + ", "
+                                "\"length\": " + std::to_string(result_length) + ", "
+                                "\"result\": " + std::to_string(result_status) + ", "
+                                "\"timestamp\": \"" + getCurrentTime() + "\", "
+                                "\"points\": [] }";
+
+                            std::ostringstream oss;
+                            oss << "Height: " << result_height << " mm \n"
+                                << "Width: " << result_width << " mm \n"
+                                << "Length: " << result_length << " mm \n"
+                                << "Angle: " << angle_degrees << " deg \n";
+
+                            std::string result = oss.str();
+
+                            uiMgr.SetDevText(result);
+
+                            std::string msg_pub = "MID360>LIS " + json_result;
+                            zmq::message_t topic_msg(msg_pub.c_str(), msg_pub.length());
+                            publisher.send(topic_msg, zmq::send_flags::dontwait);
+
+                            std::cout << "[LOG] " << result << std::endl;
+
+                            saveToFile("[SEND]" + result);
+
+                            result_height = 0;
+                            result_width = 0;
+                            result_length = 0;
+                        }
                     }
 					else {
-						viewer->removePointCloud("cloud_angle_filtered");
+						viewer->removePointCloud("cloud_filtered_volume");
+
+                        //DrawOBB(cloud_filtered_volume, viewer);
+
 					}
 
 
-                    // ºÎÇÇ ÃøÁ¤ °á°ú °è»ê
-                    if (x_lengths.size() == vector_size) {
-                        result_height = calculateAverageX(x_lengths) * 1000;
-                        x_lengths.clear();
-                    }
 
-                    if (y_lengths.size() == vector_size) {
-                        result_length = calculateAverageY(y_lengths) * 1000;
-                        y_lengths.clear();
-                    }
-
-                    if (z_lengths.size() == vector_size) {
-                        result_width = calculateAverageZ(z_lengths) * 1000;
-                        z_lengths.clear();
-                    }
-
-                    if (result_height != 0 && result_width != 0 && result_length != 0) {
-                        bool result_status = true;
-
-                        float ground_correction_mm = 0.0f;
-                        ground_correction_mm = fixed_ground_height * 1000.0f;
-                        result_height += (ground_correction_mm + 9.5f);
-
-                        //if (ground_height_fixed) {
-                        //    ground_correction_mm = fixed_ground_height * 1000.0f;
-                        //    result_height += (ground_correction_mm + 9.5f);
-                        //}
-                        //else {
-                        //    result_height += config.height_threshold + 9.5f;  // ±âÁ¸ ÀÓ½Ã º¸Á¤ (2755)
-                        //}
-
-                        std::string json_result = "{"
-                            "\"height\": " + std::to_string(result_height) + ", "
-                            "\"width\": " + std::to_string(result_width) + ", "
-                            "\"length\": " + std::to_string(result_length) + ", "
-                            "\"result\": " + std::to_string(result_status) + ", "
-                            "\"timestamp\": \"" + getCurrentTime() + "\", "
-                            "\"points\": [] }";
-
-                        std::ostringstream oss;
-                        oss << "Height: " << result_height << " mm \n"
-                            << "Width: " << result_width << " mm \n"
-                            << "Length: " << result_length << " mm \n"
-                            << "Angle: " << angle_degrees << " deg \n";
-
-                        std::string result = oss.str();
-
-						devPanel->SetInput(result.c_str());
-
-                        std::string msg_pub = "MID360>LIS " + json_result;
-                        zmq::message_t topic_msg(msg_pub.c_str(), msg_pub.length());
-                        publisher.send(topic_msg, zmq::send_flags::dontwait);
-
-                        std::cout << "[LOG] " << result << std::endl;
-
-                        saveToFile("[SEND]" + result);
-
-                        result_height = 0;
-                        result_width = 0;
-                        result_length = 0;
-                    }
                 }
 
 
 
-                // PCD µ¥ÀÌÅÍ ÀúÀå (´Ü¼ø ´©Àû)
+                // PCD ë°ì´í„° ì €ì¥ (ë‹¨ìˆœ ëˆ„ì )
                 if (SAVE_PCD_FROM_FILE) {
                     *cloud_pcd += *cloud_merge;
                     std::cout << "[DEBUG] Accumulated " << cloud_pcd->size() << " points in cloud_pcd. \n";
@@ -2364,17 +3144,17 @@ int main(int argc, const char* argv[]) {
 
                 }
 
-                // ÆÄÀÏ ¸ğµå¶ó¸é ´ÙÀ½ chunk ´ë±â À§ÇØ Ã³¸® Á¾·á
+                // íŒŒì¼ ëª¨ë“œë¼ë©´ ë‹¤ìŒ chunk ëŒ€ê¸° ìœ„í•´ ì²˜ë¦¬ ì¢…ë£Œ
                 if (READ_PCD_FROM_FILE) {
                     cloud_merge->clear();
                 }
 
-                StatusPanel->SetInput(ss.str().c_str());
-                StatusPanel->SetPosition(500, 650);
+                uiMgr.SetStatusText(ss.str());
+
 
                 rw->Render();
 
-                // Å¬¶ó¿ìµå Ã³¸® ÈÄ Å¬¶ó¿ìµå_merge ÃÊ±âÈ­
+                // í´ë¼ìš°ë“œ ì²˜ë¦¬ í›„ í´ë¼ìš°ë“œ_merge ì´ˆê¸°í™”
                 cloud_merge->clear();
             }
         }
@@ -2391,23 +3171,14 @@ int main(int argc, const char* argv[]) {
     LivoxLidarSdkUninit();
     curl_global_cleanup();
 
-    if (rebootRequested.load()) {
+    if (vtk_ui::rebootRequested.load()) {
 #if defined(_WIN32)
-        // ÇöÀç Ä¿¸Çµå¶óÀÎ ±×´ë·Î ´Ù½Ã ¶ç¿ì±â
-        STARTUPINFOA si = { sizeof(si) };
-        PROCESS_INFORMATION pi;
-        // GetCommandLineA() ·Î ¶È°°Àº ÆÄ¶ó¹ÌÅÍ ¶óÀÎ °¡Á®¿À±â
-        char cmdLine[1024];
-        strcpy_s(cmdLine, GetCommandLineA());
-        if (CreateProcessA(nullptr, cmdLine,
-            nullptr, nullptr, FALSE,
-            0, nullptr, nullptr,
-            &si, &pi)) {
-            CloseHandle(pi.hProcess);
-            CloseHandle(pi.hThread);
-        }
+        // ê¸°ì¡´ CreateProcessA ëŒ€ì‹  ì•„ë˜ë¡œ êµì²´
+        TCHAR szPath[MAX_PATH];
+        GetModuleFileName(nullptr, szPath, MAX_PATH);
+        ShellExecute(nullptr, TEXT("open"), szPath, nullptr, nullptr, SW_SHOWNORMAL);
 #else
-        // execv ´Â argv[0] °ú ³¡¿¡ NULL Æ÷ÀÎÅÍ¸¦ ³Ñ°Ü¾ß ÇÕ´Ï´Ù.
+        // execv ëŠ” argv[0] ê³¼ ëì— NULL í¬ì¸í„°ë¥¼ ë„˜ê²¨ì•¼ í•©ë‹ˆë‹¤.
         char* const exec_args[] = { const_cast<char*>(argv[0]), nullptr };
         execv(argv[0], exec_args);
 #endif
